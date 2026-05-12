@@ -63,7 +63,8 @@
     for (var _len = arguments.length, kids = Array(_len > 2 ? _len - 2 : 0), _key = 2; _key < _len; _key++) kids[_key - 2] = arguments[_key];
     var e = document.createElement(tag);
     if (attrs) for (var a in attrs) {
-      if (a === 'style' && typeof attrs[a] === 'object') for (var s in attrs[a]) e.style[s] = attrs[a][s];
+      if (a === 'className') e.className = attrs[a];
+      else if (a === 'style' && typeof attrs[a] === 'object') for (var s in attrs[a]) e.style[s] = attrs[a][s];
       else if (a === 'dataset') for (var d in attrs[a]) e.dataset[d] = attrs[a][d];
       else e.setAttribute(a, attrs[a]);
     }
@@ -244,8 +245,7 @@
 
     // header
     parts.push(el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 } },
-      el('span', { style: { fontSize: 24, fontWeight: 'bold', color: '#000080' } }, '\uD83D\uDD0D \uD83D\uDCC1 Weblist'),
-      el('a', { href: 'https://github.com/anomalyco/opencode', style: { color: '#0000FF', fontSize: 13 }, target: '_blank' }, 'powered by opencode')
+      el('span', { style: { fontSize: 24, fontWeight: 'bold', color: '#000080' } }, 'Weblist')
     ));
 
     // search
