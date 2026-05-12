@@ -259,7 +259,10 @@
 
     function itemIframe(id, url) {
       var active = state.activeIframes[id];
-      return el('iframe', { className: 'item-iframe', src: active ? url : '', style: { display: active ? 'block' : 'none' }, sandbox: 'allow-scripts allow-same-origin allow-forms' });
+      if (!active) return el('div', { className: 'item-iframe', style: { display: 'none' } });
+      var imgExt = url.match(/\.(png|jpg|jpeg|gif|svg|webp|bmp|ico)(\?|#|$)/i);
+      if (imgExt) return el('img', { className: 'item-iframe', src: url, style: { objectFit: 'contain', background: '#FFF', display: 'block' } });
+      return el('iframe', { className: 'item-iframe', src: url, sandbox: 'allow-scripts allow-same-origin allow-forms', style: { display: 'block' } });
     }
 
     function renderItems(arr, fn) {
