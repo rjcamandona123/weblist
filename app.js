@@ -14,10 +14,11 @@
     catch (e) { return false; }
   }
 
-  var isToday = (function () {
-    var today = new Date(); today.setHours(0, 0, 0, 0);
-    return function (ts) { var d = new Date(ts); d.setHours(0, 0, 0, 0); return d.getTime() === today.getTime(); };
-  })();
+  function isToday(ts) {
+    var d = new Date(ts);
+    var n = new Date();
+    return d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth() && d.getDate() === n.getDate();
+  }
 
   function msUntilMidnight() {
     var n = new Date(); return new Date(n.getFullYear(), n.getMonth(), n.getDate() + 1).getTime() - n.getTime();
@@ -48,6 +49,8 @@
     voting: safeRead('voting', {}),
     offenses: safeRead('offenses', {}),
     deletionQueue: safeRead('deletionQueue', []),
+    activeIframes: {},
+    appealModalId: null,
     search: '',
     searchResults: null,
     openMenuId: null,
@@ -91,7 +94,7 @@
     var tags = state.tagInput.split(',').map(function (t) { return t.trim(); }).filter(Boolean);
     var item = { id: uid(), timestamp: Date.now(), url: url, tags: tags, submitterId: state.submitterInput.trim() || 'anonymous', deviceId: getDeviceId() };
     state.uploads.push(item);
-    state.voting[item.id] = { vote: 0, notVote: 0, offense: 0, queueTimestamp: null, appealTimestamp: Date.now() };
+    state.voting[item.id] = { vote: 0, notVote: 0, offense: 0, queueTimestamp: null, appealTimestamp: null };
     state.urlInput = ''; state.tagInput = ''; state.submitterInput = '';
     persist('uploads'); persist('voting');
     render();
@@ -106,6 +109,7 @@
   }
 
   function trackUrlClick(itemId) {
+    state.activeIframes[itemId] = !state.activeIframes[itemId];
     var v = safeRead('recentlyViewed', []).filter(function (x) { return isToday(x.timestamp); });
     v.unshift({ tag: 'clicked', itemId: itemId, timestamp: Date.now() });
     state.recentlyViewed = v;
@@ -115,52 +119,69 @@
 
   function doSearch() {
     var q = state.search.trim().toLowerCase();
-    state.searchResults = q ? state.uploads.filter(function (u) { return u.url.toLowerCase().indexOf(q) !== -1 || u.tags.some(function (t) { return t.toLowerCase().indexOf(q) !== -1; }); }) : null;
+    if (!q) { state.searchResults = null; render(); return; }
+    var matched = state.uploads.filter(function (u) {
+      return u.url.toLowerCase().indexOf(q) !== -1 || u.tags.some(function (t) { return t.toLowerCase().indexOf(q) !== -1; });
+    });
+    var groups = {};
+    matched.forEach(function (u) {
+      if (!groups[u.url]) groups[u.url] = { ids: [], tags: [], timestamp: 0, submitterId: '', deviceId: '' };
+      var g = groups[u.url];
+      g.ids.push(u.id);
+      u.tags.forEach(function (t) { if (g.tags.indexOf(t) === -1) g.tags.push(t); });
+      if (u.timestamp > g.timestamp) { g.timestamp = u.timestamp; g.submitterId = u.submitterId; g.deviceId = u.deviceId; }
+    });
+    state.searchResults = Object.keys(groups).map(function (url) {
+      var g = groups[url];
+      return { id: g.ids[0], url: url, tags: g.tags, timestamp: g.timestamp, submitterId: g.submitterId, deviceId: g.deviceId, _groupIds: g.ids };
+    });
     render();
   }
 
   function handleVote(itemId, dir) {
     var v = Object.assign({}, state.voting);
-    if (!v[itemId]) v[itemId] = { vote: 0, notVote: 0, offense: 0, queueTimestamp: null, type: 'deletion' };
+    if (!v[itemId]) v[itemId] = { vote: 0, notVote: 0, offense: 0, type: 'deletion', pendingUntil: null };
     if (dir === 'agree') v[itemId].vote = (v[itemId].vote || 0) + 1;
     else v[itemId].notVote = (v[itemId].notVote || 0) + 1;
+    var rec = v[itemId];
+    if (rec.type === 'tag') {
+      if (rec.vote > rec.notVote) {
+        state.uploads = state.uploads.map(function (u) {
+          if (u.id === itemId && rec.suggestedTag && u.tags.indexOf(rec.suggestedTag) === -1) u.tags.push(rec.suggestedTag);
+          return u;
+        });
+        persist('uploads');
+      }
+    } else {
+      if (rec.vote > rec.notVote) {
+        if (!rec.pendingUntil) rec.pendingUntil = Date.now() + 86400000;
+      } else {
+        rec.pendingUntil = null;
+      }
+    }
     state.voting = v;
     persist('voting');
-    processModeration(itemId, v[itemId]);
     render();
   }
 
-  function processModeration(itemId, rec) {
-    if (!(rec.vote > rec.notVote)) return;
-    if (rec.type === 'tag') {
-      state.uploads = state.uploads.map(function (u) {
-        if (u.id === itemId && rec.suggestedTag && u.tags.indexOf(rec.suggestedTag) === -1) u.tags.push(rec.suggestedTag);
-        return u;
-      });
-      persist('uploads');
-    } else {
-      var o = Object.assign({}, state.offenses);
-      var cur = o[itemId] || 0;
-      o[itemId] = cur + 1;
-      state.offenses = o;
-      persist('offenses');
-      if (cur + 1 === 1) {
-        state.deletionQueue.push({ itemId: itemId, queueTimestamp: Date.now() });
-        persist('deletionQueue');
-      } else {
-        state.uploads = state.uploads.filter(function (u) { return u.id !== itemId; });
-        state.deletionQueue = state.deletionQueue.filter(function (e) { return e.itemId !== itemId; });
-        persist('uploads'); persist('deletionQueue');
-      }
-    }
+  function openAppealModal(itemId) {
+    state.appealModalId = itemId;
+    state.openMenuId = null;
+    render();
   }
 
-  function triggerAppeal(itemId) {
+  function submitAppeal(type) {
+    var itemId = state.appealModalId;
+    if (!itemId) return;
+    var tag = type === 'tag' ? prompt('Enter suggested tag:') : null;
+    if (type === 'tag' && (!tag || !tag.trim())) { state.appealModalId = null; render(); return; }
     var v = Object.assign({}, state.voting);
-    if (!v[itemId]) v[itemId] = { vote: 0, notVote: 0, offense: 0, queueTimestamp: null, type: 'deletion' };
+    if (!v[itemId]) v[itemId] = { vote: 0, notVote: 0, offense: 0, queueTimestamp: null, type: type };
     v[itemId].appealTimestamp = Date.now();
+    v[itemId].type = type;
+    if (tag) v[itemId].suggestedTag = tag.trim();
     state.voting = v;
-    state.openMenuId = null;
+    state.appealModalId = null;
     persist('voting');
     render();
   }
@@ -186,9 +207,29 @@
 
   // ── Render ──
   function render() {
+    // Process expired pending deletions
+    var now = Date.now();
+    for (var pid in state.voting) {
+      var r = state.voting[pid];
+      if (r.type !== 'tag' && r.pendingUntil && now >= r.pendingUntil && r.vote > r.notVote) {
+        r.pendingUntil = null;
+        var o = Object.assign({}, state.offenses);
+        var cur = o[pid] || 0;
+        o[pid] = cur + 1;
+        state.offenses = o;
+        persist('offenses');
+        if (cur + 1 >= 2) {
+          state.uploads = state.uploads.filter(function (u) { return u.id !== pid; });
+          state.recentlyViewed = state.recentlyViewed.filter(function (v) { return v.itemId !== pid; });
+          persist('uploads');
+          persist('recentlyViewed');
+        }
+      }
+    }
+    persist('voting');
+
     var viewed = state.recentlyViewed.filter(function (x) { return isToday(x.timestamp); });
     var hidden = hiddenIds();
-    var displayItems = state.searchResults !== null ? state.searchResults : state.uploads;
     var visibleActivity = state.uploads.filter(function (u) { return isAppealed(u.id) && !hidden.has(u.id); });
     var did = getDeviceId();
 
@@ -216,8 +257,9 @@
       return wrap;
     }
 
-    function itemIframe(url) {
-      return el('iframe', { className: 'item-iframe', src: url, sandbox: 'allow-scripts allow-same-origin allow-forms' });
+    function itemIframe(id, url) {
+      var active = state.activeIframes[id];
+      return el('iframe', { className: 'item-iframe', src: active ? url : '', style: { display: active ? 'block' : 'none' }, sandbox: 'allow-scripts allow-same-origin allow-forms' });
     }
 
     function renderItems(arr, fn) {
@@ -234,7 +276,7 @@
       return el('div', { className: 'card' },
         el('div', { className: 'card-header' },
           el('span', { className: 'card-title' }, title),
-          el('span', { className: 'card-count' }, count + ' item' + (count !== 1 ? 's' : ''))
+          el('span', { className: 'card-count' }, count + ' item' + (count > 1 ? 's' : ''))
         ),
         content
       );
@@ -276,6 +318,44 @@
       el('button', { id: 'submit-btn', className: 'btn-submit' }, '\u2728 Analyze & Submit')
     ));
 
+    // Search Results
+    if (state.searchResults !== null) {
+      parts.push(sec('Search Results', state.searchResults.length,
+        renderItems(state.searchResults, function (item) {
+          return el('div', { className: 'item-row' },
+            el('div', null, el('span', { className: 'url-link', dataset: { action: 'url-click', id: item.id } }, item.url)),
+            el('div', { className: 'item-meta' },
+              relativeTime(item.timestamp),
+              item._groupIds && item._groupIds.length > 1 ? ' (merged from ' + item._groupIds.length + ' entries)' : ''
+            ),
+            el('div', { style: { marginTop: 6, display: 'flex', alignItems: 'center', flexWrap: 'wrap' } },
+              (function () {
+                var frag = document.createDocumentFragment();
+                (item.tags || []).forEach(function (tag) {
+                  frag.appendChild(el('span', { style: { display: 'inline-block', padding: '2px 8px', margin: '3px 3px 0 0', border: '2px outset #C0C0C0', background: '#E0E0E0', color: '#000', fontSize: 12, fontWeight: 'bold', fontFamily: "'Times New Roman', Times, Georgia, serif" } }, tag));
+                });
+                frag.appendChild(el('span', { className: 'kebab-wrap' },
+                  el('button', { className: 'kebab-btn', dataset: { action: 'kebab-toggle', id: item.id } }, '\u22EE'),
+                  state.openMenuId === item.id
+                    ? el('div', { className: 'kebab-menu' },
+                        item.deviceId === did
+                          ? el('div', null,
+                              el('button', { dataset: { action: 'owner-delete', id: item.id } }, 'Delete'),
+                              el('button', { dataset: { action: 'owner-tag', id: item.id } }, 'Tag')
+                            )
+                          : el('button', { dataset: { action: 'appeal', id: item.id } }, 'Appeal for Vote')
+                      )
+                    : null
+                ));
+                return frag;
+              })()
+            ),
+            itemIframe(item.id, item.url)
+          );
+        })
+      ));
+    }
+
     // Recent Activity
     parts.push(sec('Recent Activity', visibleActivity.length,
       renderItems(visibleActivity, function (item) {
@@ -284,8 +364,9 @@
           el('div', null, el('span', { className: 'url-link', dataset: { action: 'url-click', id: item.id } }, item.url)),
           el('div', { className: 'item-meta' },
             'Appealed ' + (rec.appealTimestamp ? relativeTime(rec.appealTimestamp) : 'recently'),
-            ' \u2022 ' + (rec.type === 'tag' ? 'Tag suggestion' : 'Deletion report'),
-            rec.suggestedTag ? ' \u2192 suggest: "' + rec.suggestedTag + '"' : ''
+            ' \u2022 ' + (rec.type === 'tag' ? 'Tag suggestion' : 'Deletion'),
+            rec.suggestedTag ? ' \u2192 "' + rec.suggestedTag + '"' : '',
+            rec.pendingUntil ? ' \u23F3 Fact checking' : rec.vote + rec.notVote > 0 ? ' \u2705 Fact checked' : ' \uD83D\uDD0D Awaiting fact check'
           ),
           el('div', { style: { marginTop: 8, display: 'flex', alignItems: 'center' } },
             el('button', { className: 'vote-btn', dataset: { action: 'vote', id: item.id, dir: 'agree' } }, 'Agree (\u2191)'),
@@ -293,7 +374,7 @@
             el('button', { className: 'vote-btn', dataset: { action: 'vote', id: item.id, dir: 'disagree' } }, 'Disagree (\u2193)'),
             kebab(item.id)
           ),
-          itemIframe(item.url),
+          itemIframe(item.id, item.url),
           rec.type === 'tag' && rec.suggestedTag && rec.vote > rec.notVote
             ? el('div', { style: { marginTop: 4 } }, el('span', { className: 'approved-tag' }, 'Tag "' + rec.suggestedTag + '" approved'))
             : null
@@ -302,8 +383,8 @@
     ));
 
     // Recent Uploads
-    parts.push(sec('Recent Uploads', displayItems.length,
-      renderItems(displayItems, function (item) {
+    parts.push(sec('Recent Uploads', state.uploads.length,
+      renderItems(state.uploads, function (item) {
         if (hidden.has(item.id)) return null;
         return el('div', { className: 'item-row' },
           el('div', null, el('span', { className: 'url-link', dataset: { action: 'url-click', id: item.id } }, item.url)),
@@ -321,7 +402,7 @@
               return frag;
             })()
           ),
-          itemIframe(item.url)
+          itemIframe(item.id, item.url)
         );
       })
     ));
@@ -334,10 +415,23 @@
         return el('div', { className: 'item-row' },
           el('div', null, el('span', { className: 'url-link', dataset: { action: 'url-click', id: item.id } }, item.url)),
           el('div', { style: { marginTop: 4 } }, kebab(item.id)),
-          itemIframe(item.url)
+          itemIframe(item.id, item.url)
         );
       })
     ));
+
+    // Appeal modal
+    if (state.appealModalId) {
+      parts.push(el('div', { className: 'modal-overlay', dataset: { action: 'close-appeal' } },
+        el('div', { className: 'modal-box', style: { cursor: 'default' } },
+          el('h4', null, 'Appeal for Vote'),
+          el('p', null, 'Choose the type of appeal:'),
+          el('button', { className: 'modal-opt', dataset: { action: 'appeal-tag' } }, '\uD83C\uDFF7 Tag suggestion'),
+          el('button', { className: 'modal-opt', dataset: { action: 'appeal-del' } }, '\uD83D\uDEA8 Deletion'),
+          el('button', { className: 'modal-cancel', dataset: { action: 'close-appeal' } }, 'Cancel')
+        )
+      ));
+    }
 
     // Replace DOM
     root.innerHTML = '';
@@ -357,7 +451,10 @@
       state.openMenuId = state.openMenuId === id ? null : id;
       render();
     }
-    else if (act === 'appeal') { triggerAppeal(id); }
+    else if (act === 'appeal') { openAppealModal(id); }
+    else if (act === 'appeal-tag') { submitAppeal('tag'); }
+    else if (act === 'appeal-del') { submitAppeal('deletion'); }
+    else if (act === 'close-appeal') { state.appealModalId = null; render(); }
     else if (act === 'owner-delete') { handleOwnerDelete(id); }
     else if (act === 'owner-tag') { handleOwnerTag(id); }
     else if (act === 'vote') {
