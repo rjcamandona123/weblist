@@ -12,14 +12,11 @@
       background: #FFFFFF; color: #000000; min-height: 100vh;
     }
     #root { width: 900px; margin: 0 auto; padding: 16px 20px; }
+    @media (min-width: 1400px) { #root { width: 1200px; } }
+    @media (min-width: 1800px) { #root { width: 1400px; } }
     @media (max-width: 920px) { #root { width: 100%; padding: 12px 10px; } }
 
-    a { cursor: pointer; }
-    button { cursor: pointer; }
-
-    .card {
-      background: #FFF; border: 2px solid #C0C0C0; padding: 16px; margin-bottom: 16px;
-    }
+    .card { background: #FFF; border: 2px solid #C0C0C0; padding: 16px; margin-bottom: 16px; }
     .card-header {
       display: flex; align-items: center; justify-content: space-between;
       padding-bottom: 8px; border-bottom: 2px solid #000; margin-bottom: 12px;
@@ -35,15 +32,21 @@
       color: #0000FF; font-size: 15px; text-decoration: underline; cursor: pointer;
       word-break: break-all; display: inline-block; max-width: 100%;
     }
-    .search-box input:focus { border-color: #000080; border-style: solid; }
-    .search-box input::placeholder { color: #808080; }
-    .search-box button {
-      width: auto; padding: 0 20px; height: 40px; border: 2px outset #C0C0C0;
-      background: #C0C0C0; color: #000; font-family: 'Times New Roman', Times, Georgia, serif;
-      font-size: 14px; font-weight: bold; cursor: pointer; user-select: none;
+    .search-box { display: flex; gap: 0; border: 2px solid #000080; box-shadow: 4px 4px 0 #C0C0C0; margin-bottom: 20px; }
+    .search-box input {
+      flex: 1; height: 46px; padding: 0 16px; border: none;
+      font-family: 'Times New Roman', Times, Georgia, serif;
+      font-size: 17px; color: #000; background: #FFF; outline: none;
     }
-    .search-box button:hover { background: #D0D0D0; }
-    .search-box button:active { border-style: inset; }
+    .search-box input:focus { background: #F0F4FF; }
+    .search-box input::placeholder { color: #808080; font-style: italic; }
+    .search-box button {
+      width: auto; padding: 0 24px; height: 46px; border: none; border-left: 2px solid #000080;
+      background: #000080; color: #FFF; font-family: 'Times New Roman', Times, Georgia, serif;
+      font-size: 15px; font-weight: bold; cursor: pointer; user-select: none;
+    }
+    .search-box button:hover { background: #0000A0; }
+    .search-box button:active { background: #000060; }
 
     .form-grid { display: flex; gap: 12px; flex-wrap: wrap; }
     .form-group { flex: 1; min-width: 200px; }
@@ -70,11 +73,6 @@
     .item-row { padding: 10px 0; border-bottom: 1px solid #C0C0C0; }
     .item-row:last-child { border-bottom: none; }
 
-    .url-link {
-      color: #0000FF; font-size: 15px; text-decoration: underline; cursor: pointer;
-    }
-    .url-link:hover { color: #FF0000; }
-
     .item-meta { font-size: 13px; color: #808080; margin-top: 3px; }
 
     .tag-btn {
@@ -92,6 +90,8 @@
     }
     .vote-btn:hover { background: #D0D0D0; }
     .vote-btn:active { border-style: inset; }
+    .vote-btn-active { background: #000080; color: #FFF; border-color: #000080; }
+    .vote-btn-active:hover { background: #0000A0; }
     .vote-count { font-size: 13px; color: #808080; margin-right: 8px; }
     .approved-tag { color: #006400; font-size: 12px; font-style: italic; font-weight: bold; }
 
