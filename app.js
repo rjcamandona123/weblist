@@ -1,524 +1,693 @@
-(function () {
-  'use strict';
+'use strict';
 
-  var NS = 'weblist:';
+// ── Logger ──
+const log = (...args) => console.log('[Weblist]', ...args);
+const warn = (...args) => console.warn('[Weblist]', ...args);
+const error = (...args) => console.error('[Weblist]', ...args);
 
-  function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+// ── Storage ──
+const NS = 'weblist:';
 
-  function safeRead(key, fallback) {
-    try { var r = localStorage.getItem(NS + key); return r ? JSON.parse(r) : fallback; }
-    catch (e) { return fallback; }
+function safeGet(key, fallback) {
+  try {
+    const raw = localStorage.getItem(NS + key);
+    return raw === null ? fallback : JSON.parse(raw);
+  } catch (e) {
+    warn('read error for', key, e.message);
+    return fallback;
   }
-  function safeWrite(key, val) {
-    try { localStorage.setItem(NS + key, JSON.stringify(val)); return true; }
-    catch (e) { return false; }
+}
+
+function safeSet(key, val) {
+  try {
+    localStorage.setItem(NS + key, JSON.stringify(val));
+    return true;
+  } catch (e) {
+    error('write error for', key, e.message);
+    return false;
+  }
+}
+
+function safeGetLines(key) {
+  try {
+    const raw = localStorage.getItem(NS + key);
+    if (!raw) return [];
+    return raw.split('\n').filter(Boolean).map(l => JSON.parse(l));
+  } catch (e) {
+    warn('readLines error for', key, e.message);
+    return [];
+  }
+}
+
+function safeSetLines(key, arr) {
+  try {
+    localStorage.setItem(NS + key, arr.map(x => JSON.stringify(x)).join('\n'));
+    return true;
+  } catch (e) {
+    error('writeLines error for', key, e.message);
+    return false;
+  }
+}
+
+// ── Utilities ──
+function uid() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+function getPendingDuration(n) {
+  if (n === 0) return 18000000;
+  if (n === 1) return 7200000;
+  return 3600000;
+}
+
+function isToday(ts) {
+  const d = new Date(ts);
+  const n = new Date();
+  return d.getFullYear() === n.getFullYear() &&
+    d.getMonth() === n.getMonth() &&
+    d.getDate() === n.getDate();
+}
+
+function msUntilMidnight() {
+  const n = new Date();
+  return new Date(n.getFullYear(), n.getMonth(), n.getDate() + 1).getTime() - n.getTime();
+}
+
+function relativeTime(ts) {
+  const s = Math.floor((Date.now() - ts) / 1000);
+  if (s < 60) return 'just now';
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + 'm ago';
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + 'h ago';
+  return Math.floor(h / 24) + 'd ago';
+}
+
+function timeRemaining(ts) {
+  const diff = ts - Date.now();
+  if (diff <= 0) return 'any moment';
+  const s = Math.floor(diff / 1000);
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + 'm left';
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + 'h left';
+  return Math.floor(h / 24) + 'd left';
+}
+
+function getDeviceId() {
+  const stored = safeGet('deviceId', null);
+  if (stored) return stored;
+
+  const fp = navigator.userAgent + '|' +
+    screen.width + 'x' + screen.height + '|' +
+    new Date().getTimezoneOffset() + '|' +
+    navigator.language;
+
+  let hash = 0;
+  for (let i = 0; i < fp.length; i++) {
+    hash = ((hash << 5) - hash) + fp.charCodeAt(i);
+    hash |= 0;
   }
 
-  function isToday(ts) {
-    var d = new Date(ts);
-    var n = new Date();
-    return d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth() && d.getDate() === n.getDate();
-  }
+  const id = 'dev_' + Math.abs(hash).toString(36) + uid().slice(0, 4);
+  safeSet('deviceId', id);
+  return id;
+}
 
-  function msUntilMidnight() {
-    var n = new Date(); return new Date(n.getFullYear(), n.getMonth(), n.getDate() + 1).getTime() - n.getTime();
+// ── DOM Helper ──
+function el(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  if (attrs) {
+    for (const attr in attrs) {
+      if (attr === 'className') e.className = attrs[attr];
+      else if (attr === 'style' && typeof attrs[attr] === 'object') {
+        for (const p in attrs[attr]) e.style[p] = attrs[attr][p];
+      } else if (attr === 'dataset') {
+        for (const k in attrs[attr]) e.dataset[k] = attrs[attr][k];
+      } else {
+        e.setAttribute(attr, attrs[attr]);
+      }
+    }
   }
+  kids.forEach(child => {
+    if (child != null) e.appendChild(typeof child === 'string' ? document.createTextNode(child) : child);
+  });
+  return e;
+}
 
-  function relativeTime(ts) {
-    var s = Math.floor((Date.now() - ts) / 1000);
-    if (s < 60) return 'just now';
-    var m = Math.floor(s / 60); if (m < 60) return m + 'm ago';
-    var h = Math.floor(m / 60); if (h < 24) return h + 'h ago';
-    return Math.floor(h / 24) + 'd ago';
-  }
+// ── State ──
+let state = {
+  uploads: safeGetLines('uploads'),
+  recentlyViewed: safeGetLines('recentlyViewed'),
+  voting: safeGet('voting', {}),
+  offenses: safeGet('offenses', {}),
+  activeIframes: {},
+  appealModalId: null,
+  search: '',
+  searchResults: null,
+  resultsPage: 1,
+  openMenuId: null,
+  urlInput: '',
+  tagInput: '',
+  submitterInput: '',
+  passwordInput: '',
+  expandedSections: {},
+};
 
-  function getDeviceId() {
-    var s = safeRead('deviceId', null);
-    if (s) return s;
-    var r = navigator.userAgent + '|' + screen.width + 'x' + screen.height + '|' + new Date().getTimezoneOffset() + '|' + navigator.language;
-    for (var h = 0, i = 0; i < r.length; i++) { h = ((h << 5) - h) + r.charCodeAt(i); h |= 0; }
-    var id = 'dev_' + Math.abs(h).toString(36) + uid().slice(0, 4);
-    safeWrite('deviceId', id);
-    return id;
-  }
+function persist(key) {
+  return key === 'uploads' || key === 'recentlyViewed'
+    ? safeSetLines(key, state[key])
+    : safeSet(key, state[key]);
+}
 
-  // ── State ──
-  var state = {
-    uploads: safeRead('uploads', []),
-    recentlyViewed: safeRead('recentlyViewed', []),
-    voting: safeRead('voting', {}),
-    offenses: safeRead('offenses', {}),
-    deletionQueue: safeRead('deletionQueue', []),
-    activeIframes: {},
-    appealModalId: null,
-    search: '',
-    searchResults: null,
-    openMenuId: null,
-    urlInput: '',
-    tagInput: '',
-    submitterInput: ''
+// ── Business Logic ──
+function getVote(id) {
+  return state.voting[id] || { vote: 0, notVote: 0, offense: 0, type: 'deletion' };
+}
+
+function isAppealed(id) {
+  return state.voting[id] && state.voting[id].appealTimestamp;
+}
+
+const currentDeviceId = getDeviceId();
+
+function handleUpload() {
+  const url = state.urlInput.trim();
+  if (!url) return;
+
+  const rawTags = state.tagInput.split(',').map(t => t.trim()).filter(Boolean);
+  const tagsToAdd = rawTags.filter(t => t[0] !== '-');
+
+  const item = {
+    id: uid(),
+    timestamp: Date.now(),
+    url,
+    tags: tagsToAdd,
+    submitterId: state.submitterInput.trim() || 'anonymous',
+    deviceId: currentDeviceId,
   };
 
-  function persist(k) { safeWrite(k, state[k]); }
+  state.uploads.push(item);
+  state.voting[item.id] = { vote: 0, notVote: 0, offense: 0, userVote: null, appealTimestamp: null };
+  state.urlInput = '';
+  state.tagInput = '';
+  state.submitterInput = '';
+  persist('uploads');
+  persist('voting');
+  render();
+}
 
-  // ── Helpers ──
-  function el(tag, attrs) {
-    for (var _len = arguments.length, kids = Array(_len > 2 ? _len - 2 : 0), _key = 2; _key < _len; _key++) kids[_key - 2] = arguments[_key];
-    var e = document.createElement(tag);
-    if (attrs) for (var a in attrs) {
-      if (a === 'className') e.className = attrs[a];
-      else if (a === 'style' && typeof attrs[a] === 'object') for (var s in attrs[a]) e.style[s] = attrs[a][s];
-      else if (a === 'dataset') for (var d in attrs[a]) e.dataset[d] = attrs[a][d];
-      else e.setAttribute(a, attrs[a]);
-    }
-    kids.forEach(function (k) { if (k != null) e.appendChild(typeof k === 'string' ? document.createTextNode(k) : k); });
-    return e;
-  }
+function trackTagClick(tag, itemId) {
+  const today = state.recentlyViewed.filter(x => isToday(x.timestamp));
+  today.unshift({ tag, itemId, timestamp: Date.now() });
+  state.recentlyViewed = today;
+  persist('recentlyViewed');
+  render();
+}
 
-  function html(str) { var d = document.createElement('div'); d.innerHTML = str; return d.firstElementChild || d; }
+function trackUrlClick(itemId) {
+  state.activeIframes[itemId] = !state.activeIframes[itemId];
+  const today = state.recentlyViewed.filter(x => isToday(x.timestamp));
+  today.unshift({ tag: 'clicked', itemId, timestamp: Date.now() });
+  state.recentlyViewed = today;
+  persist('recentlyViewed');
+  render();
+}
 
-  // ── Core Logic ──
-  function getVoteRecord(id) { return state.voting[id] || { vote: 0, notVote: 0, offense: 0, queueTimestamp: null, type: 'deletion' }; }
+const RESULTS_PER_PAGE = 20;
 
-  function isAppealed(id) { return state.voting[id] && state.voting[id].appealTimestamp; }
+function navigate(base, page) {
+  location.hash = page && page > 1 ? base + '/' + page : base;
+  handleRoute();
+}
 
-  function hiddenIds() {
-    var s = new Set();
-    (state.deletionQueue || []).forEach(function (e) { s.add(e.itemId); });
-    return s;
-  }
+function handleRoute() {
+  const raw = location.hash.slice(1) || '/';
+  const segs = raw.split('/');
+  const base = '/' + segs[1] || '/';
 
-  function handleUpload() {
-    var url = state.urlInput.trim();
-    if (!url) return;
-    var tags = state.tagInput.split(',').map(function (t) { return t.trim(); }).filter(Boolean);
-    var item = { id: uid(), timestamp: Date.now(), url: url, tags: tags, submitterId: state.submitterInput.trim() || 'anonymous', deviceId: getDeviceId() };
-    state.uploads.push(item);
-    state.voting[item.id] = { vote: 0, notVote: 0, offense: 0, queueTimestamp: null, appealTimestamp: null };
-    state.urlInput = ''; state.tagInput = ''; state.submitterInput = '';
-    persist('uploads'); persist('voting');
-    render();
-  }
-
-  function trackTagClick(tag, itemId) {
-    var v = safeRead('recentlyViewed', []).filter(function (x) { return isToday(x.timestamp); });
-    v.unshift({ tag: tag, itemId: itemId, timestamp: Date.now() });
-    state.recentlyViewed = v;
-    safeWrite('recentlyViewed', v);
-    render();
-  }
-
-  function trackUrlClick(itemId) {
-    state.activeIframes[itemId] = !state.activeIframes[itemId];
-    var v = safeRead('recentlyViewed', []).filter(function (x) { return isToday(x.timestamp); });
-    v.unshift({ tag: 'clicked', itemId: itemId, timestamp: Date.now() });
-    state.recentlyViewed = v;
-    safeWrite('recentlyViewed', v);
-    render();
-  }
-
-  function doSearch() {
-    var q = state.search.trim().toLowerCase();
-    if (!q) { state.searchResults = null; render(); return; }
-    var matched = state.uploads.filter(function (u) {
-      return u.url.toLowerCase().indexOf(q) !== -1 || u.tags.some(function (t) { return t.toLowerCase().indexOf(q) !== -1; });
-    });
-    var groups = {};
-    matched.forEach(function (u) {
-      if (!groups[u.url]) groups[u.url] = { ids: [], tags: [], timestamp: 0, submitterId: '', deviceId: '' };
-      var g = groups[u.url];
-      g.ids.push(u.id);
-      u.tags.forEach(function (t) { if (g.tags.indexOf(t) === -1) g.tags.push(t); });
-      if (u.timestamp > g.timestamp) { g.timestamp = u.timestamp; g.submitterId = u.submitterId; g.deviceId = u.deviceId; }
-    });
-    state.searchResults = Object.keys(groups).map(function (url) {
-      var g = groups[url];
-      return { id: g.ids[0], url: url, tags: g.tags, timestamp: g.timestamp, submitterId: g.submitterId, deviceId: g.deviceId, _groupIds: g.ids };
-    });
-    render();
-  }
-
-  function handleVote(itemId, dir) {
-    var v = Object.assign({}, state.voting);
-    if (!v[itemId]) v[itemId] = { vote: 0, notVote: 0, offense: 0, type: 'deletion', pendingUntil: null };
-    if (dir === 'agree') v[itemId].vote = (v[itemId].vote || 0) + 1;
-    else v[itemId].notVote = (v[itemId].notVote || 0) + 1;
-    var rec = v[itemId];
-    if (rec.type === 'tag') {
-      if (rec.vote > rec.notVote) {
-        state.uploads = state.uploads.map(function (u) {
-          if (u.id === itemId && rec.suggestedTag && u.tags.indexOf(rec.suggestedTag) === -1) u.tags.push(rec.suggestedTag);
-          return u;
-        });
-        persist('uploads');
-      }
+  if (base === '/results') {
+    state.resultsPage = parseInt(segs[2], 10) || 1;
+    if (!state.searchResults && state.search.trim()) {
+      doSearch();
     } else {
-      if (rec.vote > rec.notVote) {
-        if (!rec.pendingUntil) rec.pendingUntil = Date.now() + 86400000;
-      } else {
-        rec.pendingUntil = null;
-      }
+      render();
     }
-    state.voting = v;
-    persist('voting');
+  } else {
+    state.resultsPage = 1;
+    state.searchResults = null;
     render();
   }
+}
 
-  function openAppealModal(itemId) {
-    state.appealModalId = itemId;
-    state.openMenuId = null;
-    render();
-  }
+function doSearch() {
+  const q = state.search.trim().toLowerCase();
+  if (!q) { state.resultsPage = 1; navigate(''); return; }
 
-  function submitAppeal(type) {
-    var itemId = state.appealModalId;
-    if (!itemId) return;
-    var tag = type === 'tag' ? prompt('Enter suggested tag:') : null;
-    if (type === 'tag' && (!tag || !tag.trim())) { state.appealModalId = null; render(); return; }
-    var v = Object.assign({}, state.voting);
-    if (!v[itemId]) v[itemId] = { vote: 0, notVote: 0, offense: 0, queueTimestamp: null, type: type };
-    v[itemId].appealTimestamp = Date.now();
-    v[itemId].type = type;
-    if (tag) v[itemId].suggestedTag = tag.trim();
-    state.voting = v;
-    state.appealModalId = null;
-    persist('voting');
-    render();
-  }
+  const matched = state.uploads.filter(u =>
+    u.url.toLowerCase().includes(q) || u.tags.some(t => t.toLowerCase().includes(q))
+  );
 
-  function handleOwnerDelete(itemId) {
-    state.uploads = state.uploads.filter(function (u) { return u.id !== itemId; });
-    state.openMenuId = null;
-    persist('uploads');
-    render();
-  }
-
-  function handleOwnerTag(itemId) {
-    var tag = prompt('Enter a tag to add:');
-    if (!tag || !tag.trim()) { state.openMenuId = null; render(); return; }
-    state.uploads = state.uploads.map(function (u) {
-      if (u.id === itemId && u.tags.indexOf(tag.trim()) === -1) u.tags.push(tag.trim());
-      return u;
-    });
-    state.openMenuId = null;
-    persist('uploads');
-    render();
-  }
-
-  // ── Render ──
-  function render() {
-    // Process expired pending deletions
-    var now = Date.now();
-    for (var pid in state.voting) {
-      var r = state.voting[pid];
-      if (r.type !== 'tag' && r.pendingUntil && now >= r.pendingUntil && r.vote > r.notVote) {
-        r.pendingUntil = null;
-        var o = Object.assign({}, state.offenses);
-        var cur = o[pid] || 0;
-        o[pid] = cur + 1;
-        state.offenses = o;
-        persist('offenses');
-        if (cur + 1 >= 2) {
-          state.uploads = state.uploads.filter(function (u) { return u.id !== pid; });
-          state.recentlyViewed = state.recentlyViewed.filter(function (v) { return v.itemId !== pid; });
-          persist('uploads');
-          persist('recentlyViewed');
-        }
-      }
+  const groups = {};
+  matched.forEach(u => {
+    if (!groups[u.url]) groups[u.url] = { ids: [], tags: [], timestamp: 0, submitterId: '', deviceId: '' };
+    const g = groups[u.url];
+    g.ids.push(u.id);
+    u.tags.forEach(t => { if (!g.tags.includes(t)) g.tags.push(t); });
+    if (u.timestamp > g.timestamp) {
+      g.timestamp = u.timestamp; g.submitterId = u.submitterId; g.deviceId = u.deviceId;
     }
-    persist('voting');
+  });
 
-    var viewed = state.recentlyViewed.filter(function (x) { return isToday(x.timestamp); });
-    var hidden = hiddenIds();
-    var visibleActivity = state.uploads.filter(function (u) { return isAppealed(u.id) && !hidden.has(u.id); });
-    var did = getDeviceId();
+  state.searchResults = Object.keys(groups).map(url => {
+    const g = groups[url];
+    return { id: g.ids[0], url, tags: g.tags, timestamp: g.timestamp, submitterId: g.submitterId, deviceId: g.deviceId, _groupIds: g.ids };
+  });
 
-    var root = document.getElementById('root');
+  navigate('/results', 1);
+}
 
-    // ── helpers ──
-    function itemMeta(str) { return el('div', { className: 'item-meta' }, str); }
+function handleVote(itemId, dir) {
+  const voting = { ...state.voting };
+  if (!voting[itemId]) voting[itemId] = { vote: 0, notVote: 0, offense: 0, type: 'deletion', pendingUntil: null };
+  const r = voting[itemId];
 
-    function kebab(id) {
-      var item = state.uploads.find(function (u) { return u.id === id; });
-      var isOwner = item && item.deviceId === did;
-      var wrap = el('span', { className: 'kebab-wrap' },
-        el('button', { className: 'kebab-btn', dataset: { action: 'kebab-toggle', id: id } }, '\u22EE')
-      );
-      if (state.openMenuId === id) {
-        var menu = el('div', { className: 'kebab-menu' });
-        if (isOwner) {
-          menu.appendChild(el('button', { dataset: { action: 'owner-delete', id: id } }, 'Delete'));
-          menu.appendChild(el('button', { dataset: { action: 'owner-tag', id: id } }, 'Tag'));
-        } else {
-          menu.appendChild(el('button', { dataset: { action: 'appeal', id: id } }, 'Appeal for Vote'));
-        }
-        wrap.appendChild(menu);
-      }
-      return wrap;
-    }
+  if (r.userVote === dir) dir = null;
+  else if (r.userVote === 'agree' && dir === 'disagree') {
+    r.vote = Math.max(0, (r.vote || 0) - 1);
+    r.notVote = (r.notVote || 0) + 1;
+    r.userVote = 'disagree';
+  } else if (r.userVote === 'disagree' && dir === 'agree') {
+    r.notVote = Math.max(0, (r.notVote || 0) - 1);
+    r.vote = (r.vote || 0) + 1;
+    r.userVote = 'agree';
+  } else if (dir === 'agree') { r.vote = (r.vote || 0) + 1; r.userVote = 'agree'; }
+  else if (dir === 'disagree') { r.notVote = (r.notVote || 0) + 1; r.userVote = 'disagree'; }
 
-    function itemIframe(id, url) {
-      var active = state.activeIframes[id];
-      if (!active) return el('div', { className: 'item-iframe', style: { display: 'none' } });
-      var imgExt = url.match(/\.(png|jpg|jpeg|gif|svg|webp|bmp|ico)(\?|#|$)/i);
-      if (imgExt) return el('img', { className: 'item-iframe', src: url, style: { objectFit: 'contain', background: '#FFF', display: 'block' } });
-      return el('iframe', { className: 'item-iframe', src: url, sandbox: 'allow-scripts allow-same-origin allow-forms', style: { display: 'block' } });
-    }
-
-    function renderItems(arr, fn) {
-      if (arr.length === 0) return el('div', { className: 'empty-state' }, el('p', null, 'Nothing here yet.'));
-      var scroll = el('div', { className: 'card-scroll' });
-      arr.forEach(function (x) {
-        var row = fn(x);
-        if (row) scroll.appendChild(row);
+  if (r.type === 'tag') {
+    if (r.vote > r.notVote) {
+      state.uploads = state.uploads.map(u => {
+        if (u.id === itemId && r.suggestedTag && !u.tags.includes(r.suggestedTag)) return { ...u, tags: [...u.tags, r.suggestedTag] };
+        return u;
       });
-      return scroll;
+      persist('uploads');
+    }
+  } else {
+    r.pendingUntil = r.vote > r.notVote ? Date.now() + getPendingDuration(state.offenses[itemId] || 0) : null;
+  }
+
+  state.voting = voting;
+  persist('voting');
+  render();
+}
+
+function openAppealModal(id) { state.appealModalId = id; state.openMenuId = null; render(); }
+
+function submitAppeal(type) {
+  const id = state.appealModalId;
+  if (!id) return;
+
+  let suggestedTag = null;
+  if (type === 'tag') {
+    suggestedTag = prompt('Enter suggested tag:');
+    if (!suggestedTag || !suggestedTag.trim()) { state.appealModalId = null; render(); return; }
+  }
+
+  const voting = { ...state.voting };
+  if (!voting[id]) voting[id] = { vote: 0, notVote: 0, offense: 0, userVote: null, type };
+  voting[id].appealTimestamp = Date.now();
+  voting[id].type = type;
+  if (suggestedTag) voting[id].suggestedTag = suggestedTag.trim();
+
+  state.voting = voting;
+  state.appealModalId = null;
+  persist('voting');
+  render();
+}
+
+function handleInstantDelete(itemId) {
+  const password = prompt('Enter password to instantly delete this item:');
+  if (!password || !password.trim()) { alert('Delete canceled. Password is required.'); return; }
+  const upload = state.uploads.find(u => u.id === itemId);
+  if (upload && password !== upload.submitterId + ':' + upload.id.slice(0, 6)) {
+    alert('Incorrect password. Delete canceled.');
+    return;
+  }
+  state.uploads = state.uploads.filter(u => u.id !== itemId);
+  state.recentlyViewed = state.recentlyViewed.filter(v => v.itemId !== itemId);
+  state.openMenuId = null;
+  state.passwordInput = '';
+  persist('uploads');
+  persist('recentlyViewed');
+  render();
+}
+
+function handleReportDeletion(itemId) {
+  const voting = { ...state.voting };
+  if (!voting[itemId]) voting[itemId] = { vote: 0, notVote: 0, offense: 0, userVote: null, type: 'deletion', appealTimestamp: Date.now(), pendingUntil: null };
+  else {
+    voting[itemId].appealTimestamp = Date.now();
+    voting[itemId].type = 'deletion';
+  }
+  state.voting = voting;
+  state.openMenuId = null;
+  persist('voting');
+  render();
+}
+
+function handleOwnerTag(itemId) {
+  const tag = prompt('Enter a tag to add:');
+  if (!tag || !tag.trim()) { state.openMenuId = null; render(); return; }
+  state.uploads = state.uploads.map(u => {
+    if (u.id === itemId && !u.tags.includes(tag.trim())) return { ...u, tags: [...u.tags, tag.trim()] };
+    return u;
+  });
+  state.openMenuId = null;
+  persist('uploads');
+  render();
+}
+
+// ── Component Builders ──
+const VISIBLE_LIMIT = 5;
+const SCREENSHOT_API = 'https://pageshot.site/v1/screenshot';
+
+function isImageUrl(url) {
+  return /\.(png|jpg|jpeg|gif|svg|webp|bmp|ico)(\?|#|$)/i.test(url);
+}
+
+function screenshotUrl(url) {
+  return SCREENSHOT_API + '?url=' + encodeURIComponent(url);
+}
+
+function buildKebab(id) {
+  const upload = state.uploads.find(u => u.id === id);
+  const isOwner = upload && upload.deviceId === currentDeviceId;
+  const v = state.voting[id];
+  const wrap = el('span', { className: 'kebab-wrap' },
+    el('button', { className: 'kebab-btn', dataset: { action: 'kebab-toggle', id } }, '\u22EE'),
+  );
+
+  if (state.openMenuId === id) {
+    const menu = el('div', { className: 'kebab-menu' });
+    if (v && v.pendingUntil) {
+      const h = Math.round(getPendingDuration(state.offenses[id] || 0) / 3600000);
+      menu.appendChild(el('div', { style: { padding: '6px 10px', fontSize: 12, color: '#800000', borderBottom: '1px solid #C0C0C0' } },
+        'Deletion: ' + timeRemaining(v.pendingUntil) + ' (interval ' + h + 'h)',
+      ));
+    }
+    menu.appendChild(el('button', { dataset: { action: 'report-del', id } }, '\uD83D\uDCA5 Report Deletion'));
+    menu.appendChild(el('button', { dataset: { action: 'instant-delete', id } }, '\uD83D\uDD11 Delete (Instant)'));
+    if (isOwner) menu.appendChild(el('button', { dataset: { action: 'owner-tag', id } }, 'Modification'));
+    wrap.appendChild(menu);
+  }
+  return wrap;
+}
+
+function buildPreview(id, url) {
+  if (!state.activeIframes[id]) return el('div', { className: 'item-iframe', style: { display: 'none' } });
+  const img = isImageUrl(url);
+  return el('img', {
+    className: 'item-iframe',
+    src: img ? url : screenshotUrl(url),
+    style: { objectFit: img ? 'contain' : 'cover', background: img ? '#FFF' : '#EEE', display: 'block' },
+  });
+}
+
+function buildAutoPreview(url) {
+  const img = isImageUrl(url);
+  return el('img', {
+    className: 'item-iframe',
+    src: img ? url : screenshotUrl(url),
+    style: { objectFit: img ? 'contain' : 'cover', background: '#EEE', display: 'block' },
+  });
+}
+
+function renderList(items, fn, sectionKey) {
+  if (!items.length) return el('div', { className: 'empty-state' }, el('p', null, 'Nothing here yet.'));
+  const showAll = sectionKey && state.expandedSections[sectionKey];
+  const visible = showAll ? items : items.slice(0, VISIBLE_LIMIT);
+  const container = el('div', { className: 'card-scroll' });
+  visible.forEach(i => { const r = fn(i); if (r) container.appendChild(r); });
+  if (sectionKey && items.length > VISIBLE_LIMIT && !showAll) {
+    container.appendChild(el('button', {
+      className: 'tag-btn', style: { marginTop: 8, width: '100%', textAlign: 'center' },
+      dataset: { action: 'show-more', section: sectionKey },
+    }, 'Show more (' + (items.length - VISIBLE_LIMIT) + ' remaining)'));
+  }
+  return container;
+}
+
+function section(title, count, content) {
+  return el('div', { className: 'card' },
+    el('div', { className: 'card-header' },
+      el('span', { className: 'card-title' }, title),
+      el('span', { className: 'card-count' }, count + ' item' + (count > 1 ? 's' : '')),
+    ),
+    content,
+  );
+}
+
+// ── Main Render ──
+let renderCount = 0;
+
+function render() {
+  renderCount++;
+  const now = Date.now();
+
+  // Governance
+  for (const id in state.voting) {
+    const r = state.voting[id];
+    if (r.type !== 'tag' && r.pendingUntil && now >= r.pendingUntil && r.vote > r.notVote) {
+      r.pendingUntil = null;
+      const count = (state.offenses[id] || 0) + 1;
+      state.offenses = { ...state.offenses, [id]: count };
+      persist('offenses');
+      if (count >= 2) {
+        state.uploads = state.uploads.filter(u => u.id !== id);
+        state.recentlyViewed = state.recentlyViewed.filter(v => v.itemId !== id);
+        persist('uploads');
+        persist('recentlyViewed');
+      }
+    }
+  }
+  persist('voting');
+
+  // Clean orphaned views
+  const valid = {};
+  state.uploads.forEach(u => valid[u.id] = true);
+  state.recentlyViewed = state.recentlyViewed.filter(e => valid[e.itemId]);
+
+  const todayViewed = state.recentlyViewed.filter(x => isToday(x.timestamp));
+  const appealedItems = state.uploads.filter(u => isAppealed(u.id));
+  const showingSearch = state.searchResults !== null;
+
+  const root = document.getElementById('root');
+  if (!root) return;
+  const parts = [];
+
+  // Header
+  parts.push(el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 } },
+    el('span', { style: { fontSize: 24, fontWeight: 'bold', color: '#000080' } }, showingSearch ? 'Search Results' : 'Weblist'),
+    showingSearch ? el('button', { id: 'clear-search', className: 'btn-submit', style: { marginTop: 0 } }, '\u2716 Clear') : null,
+  ));
+
+  // Search bar
+  parts.push(el('div', { className: 'search-box' },
+    el('input', { id: 'search-input', placeholder: 'Search activities...', value: state.search }),
+    el('button', { id: 'search-btn' }, '\uD83D\uDD0D Search'),
+  ));
+
+  if (showingSearch) {
+    // Related tags
+    const seed = [];
+    const relTags = [];
+    state.searchResults.forEach(r => (r.tags || []).forEach(t => { if (!seed.includes(t) && !relTags.includes(t)) { seed.push(t); relTags.push(t); } }));
+    state.uploads.forEach(u => { if (u.tags.some(t => seed.includes(t))) u.tags.forEach(t => { if (!relTags.includes(t)) relTags.push(t); }); });
+
+    if (relTags.length) {
+      const frag = document.createDocumentFragment();
+      relTags.forEach(t => frag.appendChild(el('button', { className: 'tag-btn', dataset: { action: 'tag-search', tag: t } }, t)));
+      parts.push(section('Related Tags', relTags.length, el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 4 } }, frag)));
     }
 
-    function sec(title, count, content) {
-      return el('div', { className: 'card' },
-        el('div', { className: 'card-header' },
-          el('span', { className: 'card-title' }, title),
-          el('span', { className: 'card-count' }, count + ' item' + (count > 1 ? 's' : ''))
+    // Results
+    const total = state.searchResults.length;
+    const pages = Math.ceil(total / RESULTS_PER_PAGE) || 1;
+    const cur = Math.min(state.resultsPage, pages);
+    const start = (cur - 1) * RESULTS_PER_PAGE;
+    const pageItems = state.searchResults.slice(start, start + RESULTS_PER_PAGE);
+
+    parts.push(section('Search Results ' + cur + '/' + pages, total,
+      renderList(pageItems, item => el('div', { className: 'item-row' },
+        el('div', null, el('span', { className: 'url-link', dataset: { action: 'url-click', id: item.id } }, item.url)),
+        el('div', { className: 'item-meta' },
+          relativeTime(item.timestamp),
+          item._groupIds && item._groupIds.length > 1 ? ' (merged from ' + item._groupIds.length + ' entries)' : '',
         ),
-        content
-      );
+        el('div', { style: { marginTop: 6, display: 'flex', alignItems: 'center', flexWrap: 'wrap' } },
+          (() => { const f = document.createDocumentFragment(); (item.tags || []).forEach(t => f.appendChild(el('button', { className: 'tag-btn', dataset: { action: 'tag-search', tag: t } }, t))); f.appendChild(buildKebab(item.id)); return f; })(),
+        ),
+        buildAutoPreview(item.url),
+      )),
+    ));
+
+    if (pages > 1) {
+      const nav = el('div', { style: { display: 'flex', justifyContent: 'center', gap: 6, marginTop: 12 } });
+      for (let p = 1; p <= pages; p++) nav.appendChild(el('button', { className: 'tag-btn', style: p === cur ? { background: '#000080', color: '#FFF', borderColor: '#000080' } : {}, dataset: { action: 'go-page', page: p } }, '' + p));
+      parts.push(nav);
     }
-
-    // ── Build DOM ──
-    var parts = [];
-
-    // header
-    parts.push(el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 } },
-      el('span', { style: { fontSize: 24, fontWeight: 'bold', color: '#000080' } }, 'Weblist')
-    ));
-
-    // search
-    parts.push(el('div', { className: 'search-box' },
-      el('input', { id: 'search-input', placeholder: 'Search activities...', value: state.search }),
-      el('button', { id: 'search-btn' }, '\uD83D\uDD0D Search')
-    ));
-
-    // form
+  } else {
+    // Submit form
     parts.push(el('div', { className: 'card' },
       el('div', { className: 'card-header', style: { borderBottom: 'none', paddingBottom: 0, marginBottom: 16 } },
-        el('span', { className: 'card-title' }, '\uD83D\uDD17 Submit New Link')
+        el('span', { className: 'card-title' }, '\uD83D\uDD17 Submit New Link'),
       ),
       el('div', { className: 'form-grid' },
-        el('div', { className: 'form-group' },
-          el('label', null, 'URL *'),
-          el('input', { id: 'url-input', placeholder: 'https://example.com', value: state.urlInput })
-        ),
+        el('div', { className: 'form-group' }, el('label', null, 'URL *'), el('input', { id: 'url-input', placeholder: 'https://example.com', value: state.urlInput })),
         el('div', { className: 'form-group' },
           el('label', null, 'Tag'),
-          el('input', { id: 'tag-input', placeholder: 'e.g., tutorial, news', value: state.tagInput })
+          el('input', { id: 'tag-input', placeholder: 'e.g., tutorial, news', value: state.tagInput }),
+          el('div', { style: { fontSize: 12, color: '#808080', marginTop: 4 } }, 'Tags can only be modified through tag suggestion appeals'),
         ),
-        el('div', { className: 'form-group', style: { minWidth: 160, flex: '0 1 auto' } },
-          el('label', null, 'Your name'),
-          el('input', { id: 'submitter-input', placeholder: '(optional)', value: state.submitterInput })
-        )
+        el('div', { className: 'form-group', style: { minWidth: 160, flex: '0 1 auto' } }, el('label', null, 'Your name'), el('input', { id: 'submitter-input', placeholder: '(optional)', value: state.submitterInput })),
+        el('div', { className: 'form-group', style: { minWidth: 160, flex: '0 1 auto' } }, el('label', null, 'Password'), el('input', { id: 'password-input', type: 'password', placeholder: 'optional; delete asks for password', value: state.passwordInput })),
       ),
-      el('button', { id: 'submit-btn', className: 'btn-submit' }, '\u2728 Analyze & Submit')
+      el('button', { id: 'submit-btn', className: 'btn-submit' }, '\u2728 Analyze & Submit'),
     ));
 
-    // Search Results
-    if (state.searchResults !== null) {
-      parts.push(sec('Search Results', state.searchResults.length,
-        renderItems(state.searchResults, function (item) {
-          return el('div', { className: 'item-row' },
-            el('div', null, el('span', { className: 'url-link', dataset: { action: 'url-click', id: item.id } }, item.url)),
-            el('div', { className: 'item-meta' },
-              relativeTime(item.timestamp),
-              item._groupIds && item._groupIds.length > 1 ? ' (merged from ' + item._groupIds.length + ' entries)' : ''
-            ),
-            el('div', { style: { marginTop: 6, display: 'flex', alignItems: 'center', flexWrap: 'wrap' } },
-              (function () {
-                var frag = document.createDocumentFragment();
-                (item.tags || []).forEach(function (tag) {
-                  frag.appendChild(el('span', { style: { display: 'inline-block', padding: '2px 8px', margin: '3px 3px 0 0', border: '2px outset #C0C0C0', background: '#E0E0E0', color: '#000', fontSize: 12, fontWeight: 'bold', fontFamily: "'Times New Roman', Times, Georgia, serif" } }, tag));
-                });
-                frag.appendChild(el('span', { className: 'kebab-wrap' },
-                  el('button', { className: 'kebab-btn', dataset: { action: 'kebab-toggle', id: item.id } }, '\u22EE'),
-                  state.openMenuId === item.id
-                    ? el('div', { className: 'kebab-menu' },
-                        item.deviceId === did
-                          ? el('div', null,
-                              el('button', { dataset: { action: 'owner-delete', id: item.id } }, 'Delete'),
-                              el('button', { dataset: { action: 'owner-tag', id: item.id } }, 'Tag')
-                            )
-                          : el('button', { dataset: { action: 'appeal', id: item.id } }, 'Appeal for Vote')
-                      )
-                    : null
-                ));
-                return frag;
-              })()
-            ),
-            itemIframe(item.id, item.url)
-          );
-        })
-      ));
-    }
-
-    // Recent Activity
-    parts.push(sec('Recent Activity', visibleActivity.length,
-      renderItems(visibleActivity, function (item) {
-        var rec = getVoteRecord(item.id);
+    // Activity
+    parts.push(section('Recent Activity', appealedItems.length,
+      renderList(appealedItems, item => {
+        const v = getVote(item.id);
         return el('div', { className: 'item-row' },
           el('div', null, el('span', { className: 'url-link', dataset: { action: 'url-click', id: item.id } }, item.url)),
           el('div', { className: 'item-meta' },
-            'Appealed ' + (rec.appealTimestamp ? relativeTime(rec.appealTimestamp) : 'recently'),
-            ' \u2022 ' + (rec.type === 'tag' ? 'Tag suggestion' : 'Deletion'),
-            rec.suggestedTag ? ' \u2192 "' + rec.suggestedTag + '"' : '',
-            rec.pendingUntil ? ' \u23F3 Fact checking' : rec.vote + rec.notVote > 0 ? ' \u2705 Fact checked' : ' \uD83D\uDD0D Awaiting fact check'
+            'Appealed ' + (v.appealTimestamp ? relativeTime(v.appealTimestamp) : 'recently') +
+            ' \u2022 ' + (v.type === 'tag' ? 'Tag suggestion' : 'Deletion') +
+            (v.suggestedTag ? ' \u2192 "' + v.suggestedTag + '"' : ''),
           ),
           el('div', { style: { marginTop: 8, display: 'flex', alignItems: 'center' } },
-            el('button', { className: 'vote-btn', dataset: { action: 'vote', id: item.id, dir: 'agree' } }, 'Agree (\u2191)'),
-            el('span', { className: 'vote-count' }, (rec.vote || 0) + ' / ' + (rec.notVote || 0)),
-            el('button', { className: 'vote-btn', dataset: { action: 'vote', id: item.id, dir: 'disagree' } }, 'Disagree (\u2193)'),
-            kebab(item.id)
+            el('button', { className: 'vote-btn' + (v.userVote === 'agree' ? ' vote-btn-active' : ''), dataset: { action: 'vote', id: item.id, dir: 'agree' } }, 'Agree (\u2191)' + (v.userVote === 'agree' ? ' \u2713' : '')),
+            el('span', { className: 'vote-count' }, (v.vote || 0) + ' / ' + (v.notVote || 0)),
+            el('button', { className: 'vote-btn' + (v.userVote === 'disagree' ? ' vote-btn-active' : ''), dataset: { action: 'vote', id: item.id, dir: 'disagree' } }, 'Disagree (\u2193)' + (v.userVote === 'disagree' ? ' \u2713' : '')),
+            buildKebab(item.id),
           ),
-          itemIframe(item.id, item.url),
-          rec.type === 'tag' && rec.suggestedTag && rec.vote > rec.notVote
-            ? el('div', { style: { marginTop: 4 } }, el('span', { className: 'approved-tag' }, 'Tag "' + rec.suggestedTag + '" approved'))
-            : null
+          buildPreview(item.id, item.url),
+          v.type === 'tag' && v.suggestedTag && v.vote > v.notVote
+            ? el('div', { style: { marginTop: 4 } }, el('span', { className: 'approved-tag' }, 'Tag "' + v.suggestedTag + '" approved'))
+            : null,
         );
-      })
+      }, 'activity'),
     ));
 
-    // Recent Uploads
-    parts.push(sec('Recent Uploads', state.uploads.length,
-      renderItems(state.uploads, function (item) {
-        if (hidden.has(item.id)) return null;
+    // Uploads
+    parts.push(section('Recent Uploads', state.uploads.length,
+      renderList(state.uploads, item => {
+        const vr = state.voting[item.id];
+        const pending = vr && vr.pendingUntil;
         return el('div', { className: 'item-row' },
           el('div', null, el('span', { className: 'url-link', dataset: { action: 'url-click', id: item.id } }, item.url)),
           el('div', { className: 'item-meta' },
-            relativeTime(item.timestamp),
-            item.submitterId && item.submitterId !== 'anonymous' ? ' by ' + item.submitterId : ''
+            relativeTime(item.timestamp) +
+            (item.submitterId !== 'anonymous' ? ' by ' + item.submitterId : '') +
+            (pending ? ' \u2022 ' + timeRemaining(pending) : ''),
           ),
           el('div', { style: { marginTop: 6, display: 'flex', alignItems: 'center', flexWrap: 'wrap' } },
-            (function () {
-              var frag = document.createDocumentFragment();
-              item.tags.forEach(function (tag, i) {
-                frag.appendChild(el('button', { className: 'tag-btn', dataset: { action: 'tag-click', tag: tag, id: item.id } }, tag));
-              });
-              frag.appendChild(kebab(item.id));
-              return frag;
-            })()
+            (() => { const f = document.createDocumentFragment(); item.tags.forEach(t => f.appendChild(el('button', { className: 'tag-btn', dataset: { action: 'tag-click', tag: t, id: item.id } }, t))); f.appendChild(buildKebab(item.id)); return f; })(),
           ),
-          itemIframe(item.id, item.url)
+          buildPreview(item.id, item.url),
         );
-      })
+      }, 'uploads'),
     ));
 
-    // Recently Viewed
-    parts.push(sec('Recently Viewed', viewed.length,
-      renderItems(viewed, function (entry) {
-        var item = state.uploads.find(function (u) { return u.id === entry.itemId; });
-        if (!item) return null;
+    // Viewed
+    parts.push(section('Recently Viewed', todayViewed.length,
+      renderList(todayViewed, entry => {
+        const linked = state.uploads.find(u => u.id === entry.itemId);
+        if (!linked) return null;
         return el('div', { className: 'item-row' },
-          el('div', null, el('span', { className: 'url-link', dataset: { action: 'url-click', id: item.id } }, item.url)),
-          el('div', { style: { marginTop: 4 } }, kebab(item.id)),
-          itemIframe(item.id, item.url)
+          el('div', null, el('span', { className: 'url-link', dataset: { action: 'url-click', id: linked.id } }, linked.url)),
+          el('div', { style: { marginTop: 4 } }, buildKebab(linked.id)),
+          buildPreview(linked.id, linked.url),
         );
-      })
+      }, 'viewed'),
     ));
-
-    // Appeal modal
-    if (state.appealModalId) {
-      parts.push(el('div', { className: 'modal-overlay', dataset: { action: 'close-appeal' } },
-        el('div', { className: 'modal-box', style: { cursor: 'default' } },
-          el('h4', null, 'Appeal for Vote'),
-          el('p', null, 'Choose the type of appeal:'),
-          el('button', { className: 'modal-opt', dataset: { action: 'appeal-tag' } }, '\uD83C\uDFF7 Tag suggestion'),
-          el('button', { className: 'modal-opt', dataset: { action: 'appeal-del' } }, '\uD83D\uDEA8 Deletion'),
-          el('button', { className: 'modal-cancel', dataset: { action: 'close-appeal' } }, 'Cancel')
-        )
-      ));
-    }
-
-    // Replace DOM
-    root.innerHTML = '';
-    parts.forEach(function (p) { root.appendChild(p); });
   }
 
-  // ── Event Delegation ──
-  document.addEventListener('click', function (e) {
-    var t = e.target;
-    var act = t.dataset && t.dataset.action;
-    var id = t.dataset && t.dataset.id;
-    if (!act) return;
+  // Appeal modal
+  if (state.appealModalId) {
+    parts.push(el('div', { className: 'modal-overlay', dataset: { action: 'close-appeal' } },
+      el('div', { className: 'modal-box', style: { cursor: 'default' } },
+        el('h4', null, 'Appeal for Vote'),
+        el('p', null, 'Choose the type of appeal:'),
+        el('button', { className: 'modal-opt', dataset: { action: 'appeal-tag' } }, '\uD83C\uDFF7 Modification'),
+        el('button', { className: 'modal-opt', dataset: { action: 'appeal-del' } }, '\uD83D\uDEA8 Deletion'),
+        el('button', { className: 'modal-cancel', dataset: { action: 'close-appeal' } }, 'Cancel'),
+      ),
+    ));
+  }
 
-    if (act === 'url-click') { trackUrlClick(id); e.preventDefault(); }
-    else if (act === 'tag-click') { trackTagClick(t.dataset.tag, id); }
-    else if (act === 'kebab-toggle') {
-      state.openMenuId = state.openMenuId === id ? null : id;
-      render();
-    }
-    else if (act === 'appeal') { openAppealModal(id); }
-    else if (act === 'appeal-tag') { submitAppeal('tag'); }
-    else if (act === 'appeal-del') { submitAppeal('deletion'); }
-    else if (act === 'close-appeal') { state.appealModalId = null; render(); }
-    else if (act === 'owner-delete') { handleOwnerDelete(id); }
-    else if (act === 'owner-tag') { handleOwnerTag(id); }
-    else if (act === 'vote') {
-      handleVote(id, t.dataset.dir);
-    }
-    else if (act === 'modal-close') {
-      render();
-    }
-  });
+  root.innerHTML = '';
+  parts.forEach(p => root.appendChild(p));
+}
 
-  // ── Input handling (search, form) ──
-  document.addEventListener('input', function (e) {
-    var id = e.target.id;
-    if (id === 'search-input') { state.search = e.target.value; }
-    else if (id === 'url-input') { state.urlInput = e.target.value; }
-    else if (id === 'tag-input') { state.tagInput = e.target.value; }
-    else if (id === 'submitter-input') { state.submitterInput = e.target.value; }
-  });
+// ── Events ──
+document.addEventListener('click', e => {
+  const t = e.target;
+  const ds = t.dataset;
+  const action = ds && ds.action;
+  const id = ds && ds.id;
 
-  document.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter' && e.target.id === 'search-input') { doSearch(); }
-  });
+  switch (action) {
+    case 'url-click': e.preventDefault(); trackUrlClick(id); break;
+    case 'tag-click': trackTagClick(t.dataset.tag, id); break;
+    case 'tag-search': state.search = t.dataset.tag; state.resultsPage = 1; doSearch(); break;
+    case 'kebab-toggle': state.openMenuId = state.openMenuId === id ? null : id; render(); break;
+    case 'appeal': openAppealModal(id); break;
+    case 'appeal-tag': submitAppeal('tag'); break;
+    case 'appeal-del': submitAppeal('deletion'); break;
+    case 'instant-delete': handleInstantDelete(id); break;
+    case 'report-del': handleReportDeletion(id); break;
+    case 'close-appeal': state.appealModalId = null; render(); break;
+    case 'owner-delete': handleOwnerDelete(id); break;
+    case 'owner-tag': handleOwnerTag(id); break;
+    case 'vote': handleVote(id, t.dataset.dir); break;
+    case 'show-more': state.expandedSections[t.dataset.section] = true; render(); break;
+    case 'go-page': state.resultsPage = parseInt(t.dataset.page, 10); navigate('/results', state.resultsPage); break;
+  }
 
-  // ── Close kebab on outside click ──
-  document.addEventListener('mousedown', function (e) {
-    if (state.openMenuId && !e.target.closest('.kebab-wrap')) {
-      state.openMenuId = null;
-      render();
-    }
-  });
+  if (t.id === 'submit-btn') handleUpload();
+  else if (t.id === 'search-btn') doSearch();
+  else if (t.id === 'clear-search') { state.searchResults = null; state.search = ''; navigate(''); }
+});
 
-  // ── Form submit via button ──
-  document.addEventListener('click', function (e) {
-    if (e.target.id === 'submit-btn') handleUpload();
-    if (e.target.id === 'search-btn') doSearch();
-  });
+document.addEventListener('input', e => {
+  const v = e.target.value;
+  switch (e.target.id) {
+    case 'search-input': state.search = v; break;
+    case 'url-input': state.urlInput = v; break;
+    case 'tag-input': state.tagInput = v; break;
+    case 'submitter-input': state.submitterInput = v; break;
+    case 'password-input': state.passwordInput = v; break;
+  }
+});
 
-  // ── Auto-expiry: midnight ──
-  setTimeout(function tick() {
-    var v = safeRead('recentlyViewed', []).filter(function (x) { return isToday(x.timestamp); });
-    state.recentlyViewed = v;
-    safeWrite('recentlyViewed', v);
-    render();
-    setTimeout(tick, msUntilMidnight());
-  }, msUntilMidnight());
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && e.target.id === 'search-input') doSearch();
+});
 
-  // ── Deletion queue ──
-  (function () {
-    var q = safeRead('deletionQueue', []);
-    var now = Date.now();
-    var rem = [];
-    for (var i = 0; i < q.length; i++) {
-      if (q[i].queueTimestamp && now - q[i].queueTimestamp >= 86400000) {
-        var u = safeRead('uploads', []).filter(function (x) { return x.id !== q[i].itemId; });
-        safeWrite('uploads', u);
-      } else { rem.push(q[i]); }
-    }
-    safeWrite('deletionQueue', rem);
-    state.deletionQueue = rem;
-  })();
+document.addEventListener('mousedown', e => {
+  if (state.openMenuId && !e.target.closest('.kebab-wrap')) { state.openMenuId = null; render(); }
+});
 
-  // ── Initial render ──
+// ── Midnight expiry ──
+setTimeout(function tick() {
+  state.recentlyViewed = state.recentlyViewed.filter(x => isToday(x.timestamp));
+  persist('recentlyViewed');
   render();
-})();
+  setTimeout(tick, msUntilMidnight());
+}, msUntilMidnight());
+
+// ── Routing & Boot ──
+window.addEventListener('hashchange', handleRoute);
+handleRoute();
