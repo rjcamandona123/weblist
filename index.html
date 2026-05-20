@@ -2,155 +2,1065 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Weblist</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>💾</text></svg>">
+  <title>Weblist &#xb0; 90s Edition</title>
+  <link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css">
+  <script src="app.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.5/dist/cdn.min.js"></script>
+  <script src="https://cdn.plyr.io/3.7.8/plyr.js"></script>
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      font-family: 'Times New Roman', Times, Georgia, serif;
-      background: #FFFFFF; color: #000000; min-height: 100vh;
+      margin: 0;
+      padding: 8px;
+      font-family: "Comic Sans MS", "Times New Roman", serif;
+      background: #008080;
+      color: #000;
     }
-    #root { width: 900px; margin: 0 auto; padding: 16px 20px; }
-    @media (min-width: 1400px) { #root { width: 1200px; } }
-    @media (min-width: 1800px) { #root { width: 1400px; } }
-    @media (max-width: 920px) { #root { width: 100%; padding: 12px 10px; } }
-
-    .card { background: #FFF; border: 2px solid #C0C0C0; padding: 16px; margin-bottom: 16px; }
-    .card-header {
-      display: flex; align-items: center; justify-content: space-between;
-      padding-bottom: 8px; border-bottom: 2px solid #000; margin-bottom: 12px;
+    [x-cloak] { display: none !important; }
+    .desktop {
+      max-width: 960px;
+      width: 100%;
+      margin: 0 auto;
+      background: #C0C0C0;
+      border: 3px ridge #FFFFFF;
+      padding: 4px;
+      box-sizing: border-box;
+      resize: both;
+      overflow: auto;
+      min-width: 320px;
+      min-height: 400px;
     }
-    .card-title { font-size: 22px; font-weight: bold; color: #000080; }
-    .card-count { font-size: 13px; color: #808080; font-weight: normal; }
-    .card-scroll { max-height: 480px; overflow-y: auto; overflow-x: auto; }
-    .card-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
-    .card-scroll::-webkit-scrollbar-track { background: #E0E0E0; }
-    .card-scroll::-webkit-scrollbar-thumb { background: #808080; border: 1px outset #C0C0C0; }
-
-    .url-link {
-      color: #0000FF; font-size: 15px; text-decoration: underline; cursor: pointer;
-      word-break: break-all; display: inline-block; max-width: 100%;
+    .title-bar {
+      background: linear-gradient(90deg, #000080, #1084D0);
+      color: #FFF;
+      font-size: 18px;
+      font-weight: bold;
+      padding: 4px 8px;
+      margin-bottom: 4px;
+      display: flex;
+      justify-content: space-between;
     }
-    .search-box { display: flex; gap: 0; border: 2px solid #000080; box-shadow: 4px 4px 0 #C0C0C0; margin-bottom: 20px; }
-    .search-box input {
-      flex: 1; height: 46px; padding: 0 16px; border: none;
-      font-family: 'Times New Roman', Times, Georgia, serif;
-      font-size: 17px; color: #000; background: #FFF; outline: none;
+    .title-bar button {
+      background: #C0C0C0;
+      border: 2px outset #FFF;
+      font-weight: bold;
+      cursor: pointer;
     }
-    .search-box input:focus { background: #F0F4FF; }
-    .search-box input::placeholder { color: #808080; font-style: italic; }
-    .search-box button {
-      width: auto; padding: 0 24px; height: 46px; border: none; border-left: 2px solid #000080;
-      background: #000080; color: #FFF; font-family: 'Times New Roman', Times, Georgia, serif;
-      font-size: 15px; font-weight: bold; cursor: pointer; user-select: none;
+    .window {
+      background: #C0C0C0;
+      border: 2px outset #FFFFFF;
+      margin-bottom: 6px;
     }
-    .search-box button:hover { background: #0000A0; }
-    .search-box button:active { background: #000060; }
-
-    .form-grid { display: flex; gap: 12px; flex-wrap: wrap; }
-    .form-group { flex: 1; min-width: 200px; }
-    .form-group label { display: block; font-size: 15px; color: #000; margin-bottom: 4px; font-weight: bold; }
-    .form-group input {
-      width: 100%; height: 36px; padding: 0 10px; border: 2px inset #C0C0C0;
-      font-family: 'Times New Roman', Times, Georgia, serif;
-      font-size: 15px; color: #000; background: #FFF; outline: none;
+    .window-title {
+      background: linear-gradient(90deg, #000080, #1084D0);
+      color: #FFF;
+      font-weight: bold;
+      padding: 3px 6px;
+      font-size: 14px;
+      display: flex;
+      justify-content: space-between;
     }
-    .form-group input:focus { border-color: #000080; border-style: solid; }
-    .form-group input::placeholder { color: #808080; }
-    .btn-submit {
-      height: 36px; padding: 0 24px; margin-top: 8px; border: 2px outset #C0C0C0;
-      background: #000080; color: #FFF; font-family: 'Times New Roman', Times, Georgia, serif;
-      font-size: 14px; font-weight: bold; cursor: pointer; user-select: none;
+    .window-body {
+      padding: 10px;
+      background: #FFFFFF;
+      border: 1px inset #808080;
     }
-    .btn-submit:hover { background: #0000A0; }
-    .btn-submit:active { border-style: inset; }
-
-    .empty-state { text-align: center; padding: 30px 20px; }
-    .empty-state p { color: #808080; font-size: 16px; line-height: 1.5; }
-    .empty-state p:first-child { font-weight: bold; color: #000080; }
-
-    .item-row { padding: 10px 0; border-bottom: 1px solid #C0C0C0; }
-    .item-row:last-child { border-bottom: none; }
-
-    .item-meta { font-size: 13px; color: #808080; margin-top: 3px; }
-
-    .tag-btn {
-      display: inline-block; padding: 2px 8px; margin: 3px 3px 0 0; border: 2px outset #C0C0C0;
-      background: #E0E0E0; color: #000; font-size: 12px; font-weight: bold;
-      font-family: 'Times New Roman', Times, Georgia, serif; cursor: pointer; user-select: none;
+    input, select {
+      font-family: "Comic Sans MS", "Times New Roman", serif;
+      font-size: 14px;
+      border: 2px inset #808080;
+      background: #FFF;
+      padding: 4px 6px;
+      width: 100%;
+      box-sizing: border-box;
     }
-    .tag-btn:hover { background: #D0D0D0; }
-    .tag-btn:active { border-style: inset; }
-
+    .btn {
+      font-family: "Comic Sans MS", "Times New Roman", serif;
+      font-size: 13px;
+      font-weight: bold;
+      padding: 4px 14px;
+      border: 2px outset #FFFFFF;
+      background: #C0C0C0;
+      cursor: pointer;
+    }
+    .btn:active { border-style: inset; }
+    .btn-primary {
+      background: #000080;
+      color: #FFF;
+      border-color: #6666FF;
+    }
+    .btn-success {
+      background: #008000;
+      color: #FFF;
+      border-color: #00FF00;
+    }
+    .btn-danger {
+      background: #800000;
+      color: #FFF;
+      border-color: #FF0000;
+    }
+    .field-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 6px;
+      flex-wrap: wrap;
+    }
+    .field-row > * { flex: 1; }
+    .field-row > .btn { flex: 0 0 auto; }
+    .field-label {
+      font-size: 13px;
+      font-weight: bold;
+      color: #000;
+      margin-bottom: 2px;
+    }
+    .item-card {
+      border: 2px ridge #C0C0C0;
+      background: #FFFFF0;
+      padding: 6px 8px;
+      margin-bottom: 4px;
+      font-size: 13px;
+      resize: horizontal;
+      overflow: hidden;
+      min-width: 180px;
+    }
+    .item-card a { color: #0000FF; }
+    .item-card a:visited { color: #800080; }
+    .tag {
+      display: inline-block;
+      background: #FFFF00;
+      color: #000;
+      font-size: 11px;
+      padding: 1px 6px;
+      border: 1px outset #808080;
+      cursor: pointer;
+      margin: 1px;
+    }
+    .tag:active { border-style: inset; }
+    .kebab {
+      font-size: 18px;
+      cursor: pointer;
+      user-select: none;
+      padding: 0 4px;
+    }
+    .menu-box {
+      position: fixed;
+      background: #C0C0C0;
+      border: 2px outset #FFFFFF;
+      padding: 2px;
+      z-index: 999;
+      min-width: 140px;
+    }
+    .menu-box div {
+      padding: 3px 12px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .menu-box div:hover { background: #000080; color: #FFF; }
+    .empty-state {
+      text-align: center;
+      color: #808080;
+      padding: 20px;
+      font-size: 14px;
+    }
+    .marquee {
+      font-size: 13px;
+      color: #FFFF00;
+      background: #000080;
+      padding: 2px;
+      margin-bottom: 4px;
+      overflow: hidden;
+      white-space: nowrap;
+    }
+    .counter {
+      font-size: 12px;
+      color: #FFFF00;
+    }
+    .blink {
+      animation: blink-anim 1s step-end infinite;
+      color: #00AA00;
+    }
+    @keyframes blink-anim {
+      50% { opacity: 0; }
+    }
     .vote-btn {
-      padding: 3px 10px; margin-right: 6px; border: 2px outset #C0C0C0;
-      background: #E0E0E0; color: #000; font-size: 12px; font-weight: bold;
-      font-family: 'Times New Roman', Times, Georgia, serif; cursor: pointer; user-select: none;
+      background: #C0C0C0;
+      border: 2px outset #FFF;
+      cursor: pointer;
+      font-size: 14px;
+      padding: 1px 8px;
+      margin: 1px;
     }
-    .vote-btn:hover { background: #D0D0D0; }
     .vote-btn:active { border-style: inset; }
-    .vote-btn-active { background: #000080; color: #FFF; border-color: #000080; }
-    .vote-btn-active:hover { background: #0000A0; }
-    .vote-count { font-size: 13px; color: #808080; margin-right: 8px; }
-    .approved-tag { color: #006400; font-size: 12px; font-style: italic; font-weight: bold; }
+    .vote-btn.active { background: #000080; color: #FFF; border-color: #6666FF; }
+    .progress-bar {
+      height: 18px;
+      background: #FFF;
+      border: 1px inset #808080;
+      margin-top: 4px;
+      position: relative;
+      font-family: monospace;
+      font-size: 11px;
+      line-height: 18px;
+    }
+    .progress-fill {
+      height: 100%;
+      background: #0000FF;
+      transition: width 1s linear;
+    }
+    .progress-text {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      text-align: center;
+      color: #000;
+      font-weight: bold;
+    }
+    .hscroll {
+      display: flex;
+      overflow-x: auto;
+      gap: 8px;
+      padding: 2px 0 6px;
+    }
+    .hscroll-card {
+      flex: 0 0 auto;
+      width: 260px;
+      margin-bottom: 0;
+    }
+    .plyr,
+    .plyr__controls { border-radius:0; font-family:"Comic Sans MS","Times New Roman",serif }
+    .plyr--video { background:#000 }
+    .plyr__controls { background:#000080; color:#FFF; font-size:13px; border:2px ridge #C0C0C0 }
+    .plyr__control { color:#FFF }
+    .plyr__control:hover { background:#0000C0; color:#FFF }
+    .plyr__progress__buffer { background:#C0C0C0 }
+    .plyr--full-ui input[type=range] { color:#00AA00 }
+    .plyr__time { font-family:monospace; font-size:11px }
+    .plyr__poster { background:#000 }
+    .plyr__control--overlaid { background:#000080; border:2px outset #FFF; padding:12px }
+    .plyr__control--overlaid:hover { background:#0000C0 }
+    .plyr__control--overlaid svg { fill:#FFF }
+    .results-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .results-grid .item-card {
+      flex: 0 0 auto;
+      width: 280px;
+    }
+    .results-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .grid-card {
+      margin-bottom: 0;
+    }
+    .list-card {
+      margin-bottom: 0;
+    }
+    @media (max-width: 640px) {
+      .hscroll-card { flex: 0 0 220px; }
+    }
+    .pagination {
+      display: flex;
+      gap: 4px;
+      justify-content: center;
+      margin-top: 8px;
+    }
+    .pagination button {
+      font-family: "Comic Sans MS", "Times New Roman", serif;
+      background: #C0C0C0;
+      border: 2px outset #FFF;
+      cursor: pointer;
+      font-size: 12px;
+      padding: 2px 8px;
+    }
+    .pagination button:active { border-style: inset; }
+    .pagination button.active { background: #000080; color: #FFF; border-color: #6666FF; }
+    .watch-grid {
+      display: grid;
+      grid-template-columns: 1fr 260px;
+      grid-template-rows: auto auto;
+      gap: 8px;
+      margin-top: 6px;
+    }
+    .watch-player-area { grid-column: 1; grid-row: 1; }
+    .watch-sidebar { grid-column: 2; grid-row: 1 / 3; }
+    .watch-bottom { grid-column: 1; grid-row: 2; }
 
-    .modal-overlay {
-      position: fixed; inset: 0; z-index: 1000; background: rgba(0,0,0,0.5);
-      display: flex; align-items: center; justify-content: center;
-    }
-    .modal-box {
-      background: #FFF; border: 3px outset #C0C0C0; padding: 20px;
-      max-width: 420px; width: 90%;
-    }
-    .modal-box h4 { margin: 0 0 12px; font-size: 18px; color: #000080; font-weight: bold; }
-    .modal-box p { font-size: 14px; color: #000; margin: 0 0 14px; }
-    .modal-opt {
-      display: block; width: 100%; padding: 8px 12px; margin-bottom: 6px;
-      border: 2px outset #C0C0C0; background: #FFF; color: #000;
-      cursor: pointer; text-align: left; font-size: 14px; user-select: none;
-      font-family: 'Times New Roman', Times, Georgia, serif;
-    }
-    .modal-opt:hover { background: #E0E0E0; }
-    .modal-opt:active { border-style: inset; }
-    .modal-cancel {
-      display: block; width: 100%; padding: 8px; margin-top: 6px;
-      border: 2px outset #C0C0C0; background: #800000; color: #FFF;
-      cursor: pointer; font-size: 14px; font-weight: bold; user-select: none;
-      font-family: 'Times New Roman', Times, Georgia, serif;
-    }
-    .modal-cancel:hover { background: #A00000; }
-    .modal-cancel:active { border-style: inset; }
-
-    .kebab-wrap { position: relative; display: inline-block; margin-left: 4px; vertical-align: middle; }
-    .kebab-btn {
-      background: #E0E0E0; border: 2px outset #C0C0C0; cursor: pointer;
-      padding: 1px 6px 0; font-size: 16px; line-height: 1.2;
-      color: #000; font-family: 'Times New Roman', Times, Georgia, serif; user-select: none;
-    }
-    .kebab-btn:hover { background: #D0D0D0; }
-    .kebab-btn:active { border-style: inset; }
-    .kebab-menu {
-      position: absolute; left: 0; top: 100%; z-index: 100; min-width: 160px;
-      background: #FFF; border: 2px outset #C0C0C0; padding: 2px; margin-top: 2px;
-    }
-    .kebab-menu button {
-      display: block; width: 100%; padding: 6px 10px; border: 1px solid transparent;
-      background: none; color: #000; font-size: 13px;
-      font-family: 'Times New Roman', Times, Georgia, serif;
-      text-align: left; cursor: pointer;
-    }
-    .kebab-menu button:hover { background: #E0E0E0; border-color: #808080; }
-    .kebab-menu button.danger { color: #800000; font-weight: bold; }
-
-    .item-iframe {
-      width: 100%; height: 200px; border: 2px inset #C0C0C0;
-      margin-top: 8px; background: #FFF; display: block;
+    @media (max-width: 640px) {
+      body { padding: 4px; }
+      .desktop { padding: 2px; }
+      .window-body { padding: 6px; }
+      .title-bar { font-size: 15px; padding: 3px 6px; }
+      .window-title { font-size: 13px; padding: 2px 5px; }
+      .field-row { flex-direction: column; }
+      .field-row > * { flex: 1 1 100% !important; }
+      .field-row > .btn { flex: 0 0 auto !important; }
+      .field-row .btn { width: 100%; }
+      .item-card { font-size: 12px; }
+      .item-card .preview-wrap { height: 100px; }
+      input, select { font-size: 16px; }
+      .btn { font-size: 14px; padding: 6px 12px; }
+      .search-mode-row { flex-wrap: wrap; }
+      .watch-grid { grid-template-columns: 1fr !important; }
+      .watch-sidebar { grid-column: 1 !important; grid-row: auto !important; }
+      .watch-bottom { grid-column: 1 !important; grid-row: auto !important; }
     }
   </style>
 </head>
 <body>
-  <div id="root"></div>
-  <script src="app.js"></script>
+<div class="desktop" x-data="weblist" x-cloak>
+  <div class="title-bar">
+    <span>&#x2605; WebList &#x2605;</span>
+    <span class="blink">&#x2022; ONLINE</span>
+  </div>
+  <div class="marquee">
+    Welcome to WebList &nbsp;&#x2665;&nbsp; Submit your favorite links!
+  </div>
+
+  <!-- SEARCH -->
+  <div class="window">
+    <div class="window-title"><span> Search</span></div>
+    <div class="window-body">
+      <input type="text" x-model="search" @keydown.enter="doSearch()" placeholder="Search URLs or tags..." style="width:100%;margin-bottom:6px">
+      <div class="field-row" style="margin-bottom:4px">
+        <button class="btn btn-primary" @click="doSearch()"> Search</button>
+        <button class="btn" @click="clearSearch()" x-show="showingSearch">Clear</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- VIDEO PROMPT (on main page) -->
+  <div class="window" x-show="page === ''" style="margin-bottom:8px">
+    <div class="window-body" style="text-align:center;font-size:13px;padding:8px">
+      Do you want to submit videos?
+      <a href="#/video" style="color:#0000FF;text-decoration:underline;cursor:pointer;margin-left:4px">Submit a video URL</a>
+    </div>
+  </div>
+
+  <!-- MAIN CONTENT (hidden on #/results, #/video) -->
+  <div x-show="page === ''">
+  <!-- SUBMIT -->
+  <div class="window">
+    <div class="window-title">
+      <span> Submit New Link</span>
+      <span style="font-weight:normal;font-size:12px">All fields matter!</span>
+    </div>
+    <div class="window-body">
+      <div class="field-row">
+        <div style="flex:1">
+          <div class="field-label">URL *</div>
+          <input type="text" x-model="urlInput" placeholder="http://">
+        </div>
+        <div style="flex:1">
+          <div class="field-label">Tags</div>
+          <input type="text" x-model="tagInput" placeholder="comma, separated">
+        </div>
+      </div>
+      <div class="field-row">
+        <div style="flex:1">
+          <div class="field-label">Password *</div>
+          <input type="password" x-model="passwordInput" placeholder="required to delete later">
+        </div>
+      </div>
+      <button class="btn btn-success" @click="handleUpload()">Submit</button>
+    </div>
+  </div>
+
+  <!-- RECENT ACTIVITY (Appealed) -->
+  <div class="window">
+    <div class="window-title">
+      <span> Recent Activity</span>
+      
+    </div>
+    <div class="window-body">
+      <template x-if="limitedAppealed.length === 0">
+        <div class="empty-state">
+          No activities yet.<br>
+          Do your first link above! <span style="color:red;font-size:20px">&#x261E;</span>
+        </div>
+      </template>
+      <div class="hscroll" x-show="limitedAppealed.length > 0">
+        <template x-for="item in limitedAppealed" :key="item.id">
+          <div class="item-card hscroll-card">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span x-text="appealMeta(item)" style="font-size:11px;color:#555"></span>
+              <span class="kebab" @click.stop="toggleKebab(item.id, $event, 'activity')">&#x22EE;</span>
+            </div>
+            <div style="margin-top:4px">
+              <span x-text="getUrlTitle(item.url)" style="word-break:break-all;font-size:11px"></span>
+              <br>
+              <span style="font-size:10px;color:#808080;word-break:break-all" x-text="item.url"></span>
+            </div>
+            <div style="margin-top:4px;display:flex;align-items:center;gap:6px" x-data="{ v: voting[item.id] || {} }">
+              <button class="vote-btn" :class="{ active: v.userVote === 'agree' }" @click="handleVote(item.id, 'agree')"><span x-text="v.vote || 0"></span> Agree</button>
+              <button class="vote-btn" :class="{ active: v.userVote === 'disagree' }" @click="handleVote(item.id, 'disagree')"><span x-text="v.notVote || 0"></span> Disagree</button>
+            </div>
+            <div class="progress-bar" x-show="voting[item.id] && voting[item.id].pendingUntil">
+              <div class="progress-fill" :style="'width:' + countdownProgress(voting[item.id].pendingUntil, voting[item.id].pendingDuration, tick) + '%'"></div>
+              <span class="progress-text" x-text="timeRemaining(voting[item.id].pendingUntil, tick)"></span>
+            </div>
+            <template x-if="openMenuUid === 'activity|' + item.id">
+              <div class="menu-box" :style="kebabPos" @click.outside="closeKebab('activity')" style="position:fixed">
+                <div @click="instantDelete(item.id)">Delete (Instant)</div>
+                <div @click="reportDeletion(item.id)">(!) Report Deletion</div>
+                <div @click="ownerTag(item.id)">Tag Suggest</div>
+              </div>
+            </template>
+          </div>
+        </template>
+      </div>
+      <div x-show="appealedItems.length > VISIBLE_LIMIT" style="text-align:center;margin-top:4px">
+        <a href="#/activity" style="color:#0000FF;text-decoration:underline;cursor:pointer;font-size:12px">More</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- RECENT UPLOADS -->
+  <div class="window">
+    <div class="window-title">
+      <span> Recent Uploads</span>
+
+    </div>
+    <div class="window-body">
+      <template x-if="limitedUploads.length === 0">
+        <div class="empty-state">
+          No uploads yet.<br>
+          Submit your first link above! <span style="color:red;font-size:20px">&#x261E;</span>
+        </div>
+      </template>
+      <div class="hscroll" x-show="limitedUploads.length > 0">
+        <template x-for="item in limitedUploads" :key="item.id">
+          <div class="item-card hscroll-card">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <div>
+                <span style="font-weight:bold;font-size:12px" x-text="item.submitterId"></span>
+                <span style="font-size:11px;color:#666" x-text="relativeTime(item.timestamp)"></span>
+              </div>
+              <span class="kebab" @click.stop="toggleKebab(item.id, $event, 'uploads')">&#x22EE;</span>
+            </div>
+            <div style="margin:4px 0">
+              <a :href="item.url" target="_blank" @click.prevent="trackUrlClick(item.id, item.url)" style="word-break:break-all">
+                <span x-text="getUrlTitle(item.url)"></span>
+                <br>
+                <span style="font-size:10px;color:#808080" x-text="item.url"></span>
+              </a>
+            </div>
+            <div>
+              <template x-for="tag in item.tags" :key="tag">
+                <span class="tag" @contextmenu.prevent="openTagContext(item.id, tag, $event)" @touchstart.passive="startTagLongPress(item.id, tag, $event)" @touchend="endTagLongPress()" @touchmove="cancelTagLongPress()" @click="handleTagClick(tag, item.id)" x-text="tag"></span>
+              </template>
+            </div>
+            <!-- Upload kebab menu -->
+            <template x-if="openMenuUid === 'uploads|' + item.id">
+              <div class="menu-box" :style="kebabPos" @click.outside="closeKebab('uploads')" style="position:fixed">
+                <div @click="instantDelete(item.id)">Delete (Instant)</div>
+                <div @click="reportDeletion(item.id)">(!) Report Deletion</div>
+                <div @click="ownerTag(item.id)">Tag Suggest</div>
+              </div>
+            </template>
+          </div>
+        </template>
+      </div>
+      <div x-show="uploads.length > VISIBLE_LIMIT" style="text-align:center;margin-top:4px">
+        <a href="#/uploads" style="color:#0000FF;text-decoration:underline;cursor:pointer;font-size:12px">More</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- RECENTLY VIEWED -->
+  <div class="window">
+    <div class="window-title">
+      <span> Recently Viewed</span>
+          </div>
+    <div class="window-body">
+      <template x-if="limitedViewed.length === 0">
+        <div class="empty-state">
+          No viewed yet.<br>
+          View your first link now! <span style="color:red;font-size:20px">&#x261E;</span>
+        </div>
+      </template>
+      <div class="hscroll" x-show="limitedViewed.length > 0">
+        <template x-for="entry in limitedViewed" :key="entry.itemId + entry.timestamp">
+          <div class="item-card hscroll-card">
+            <div style="margin:4px 0">
+              <a :href="linkedUrl(entry)" target="_blank" @click.prevent="trackUrlClick(entry.itemId, linkedUrl(entry))" style="word-break:break-all;font-size:11px">
+                <span x-text="getUrlTitle(linkedUrl(entry))"></span>
+                <br>
+                <span style="font-size:10px;color:#808080" x-text="linkedUrl(entry)"></span>
+              </a>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span>
+                <span x-show="entry.tag !== 'clicked'" class="tag" @click="searchTag(entry.tag)" x-text="entry.tag" style="cursor:pointer"></span>
+                <span x-show="entry.tag === 'clicked'" style="font-size:11px;color:#555;word-break:break-all">
+                  <span x-text="getUrlTitle(linkedUrl(entry))"></span>
+                  <br>
+                  <span style="font-size:10px;color:#808080" x-text="linkedUrl(entry)"></span>
+                </span>
+                <span style="font-size:11px;color:#666;margin-left:4px" x-text="relativeTime(entry.timestamp)"></span>
+              </span>
+            </div>
+          </div>
+        </template>
+      </div>
+      <div x-show="todayViewed.length > VISIBLE_LIMIT" style="text-align:center;margin-top:4px">
+        <a href="#/viewed" style="color:#0000FF;text-decoration:underline;cursor:pointer;font-size:12px">More</a>
+      </div>
+    </div>
+  </div>
+  </div>
+
+  <!-- SEARCH RESULTS PAGE (#/results) -->
+  <div class="window" x-show="page === 'results'">
+    <div class="window-title">
+      <span> Search Results</span>
+      <span class="counter" x-text="totalResults + ' matches'"></span>
+      <span style="margin-left:auto;display:flex;gap:4px">
+        <button class="btn" :class="searchLayout === 'grid' ? 'btn-primary' : ''" @click="searchLayout='grid'" style="font-size:11px;padding:1px 6px">[#] Grid</button>
+        <button class="btn" :class="searchLayout === 'list' ? 'btn-primary' : ''" @click="searchLayout='list'" style="font-size:11px;padding:1px 6px">[=] List</button>
+        <button class="btn" @click="clearSearch()" style="font-size:11px;padding:1px 6px">[X] Back</button>
+      </span>
+    </div>
+    <div class="window-body">
+        <div class="search-mode-row" style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+          <span style="font-size:12px;font-weight:bold">Search in:</span>
+          <button class="btn" :class="searchMode === 'all' ? 'btn-primary' : ''" @click="searchMode='all'; doSearch()" style="font-size:11px;padding:2px 8px">All</button>
+          <button class="btn" :class="searchMode === 'url' ? 'btn-primary' : ''" @click="searchMode='url'; doSearch()" style="font-size:11px;padding:2px 8px">URL</button>
+          <button class="btn" :class="searchMode === 'tags' ? 'btn-primary' : ''" @click="searchMode='tags'; doSearch()" style="font-size:11px;padding:2px 8px">Tags</button>
+          <button class="btn" :class="searchMode === 'title' ? 'btn-primary' : ''" @click="searchMode='title'; doSearch()" style="font-size:11px;padding:2px 8px">Title</button>
+          <span style="font-size:11px;color:#555;margin-left:4px">or <code>/tag: tagname</code></span>
+          <span style="margin-left:12px;font-size:12px;font-weight:bold">Type:</span>
+          <button class="btn" :class="searchContentType === 'all' ? 'btn-primary' : ''" @click="searchContentType='all'; doSearch()" style="font-size:11px;padding:2px 8px">All</button>
+          <button class="btn" :class="searchContentType === 'link' ? 'btn-primary' : ''" @click="searchContentType='link'; doSearch()" style="font-size:11px;padding:2px 8px">Link</button>
+          <button class="btn" :class="searchContentType === 'video' ? 'btn-primary' : ''" @click="searchContentType='video'; doSearch()" style="font-size:11px;padding:2px 8px">Video</button>
+        </div>
+      <template x-for="r in pageResults" :key="r.id">
+        <div class="item-card" :class="searchLayout === 'grid' ? 'grid-card' : 'list-card'">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <span style="font-weight:bold;font-size:12px" x-show="!r._isVideo" x-text="r.submitterId || 'anonymous'"></span>
+            <span style="font-weight:bold;font-size:12px" x-show="r._isVideo">Video</span>
+            <span style="font-size:11px;color:#666" x-text="relativeTime(r.timestamp)"></span>
+          </div>
+          <div style="margin:4px 0">
+            <template x-if="!r._isVideo">
+              <a :href="r.url" target="_blank" @click.prevent="trackUrlClick(r.id, r.url)" style="word-break:break-all">
+                <span x-text="getUrlTitle(r.url)"></span>
+                <br>
+                <span style="font-size:10px;color:#808080" x-text="r.url"></span>
+              </a>
+            </template>
+            <template x-if="r._isVideo">
+              <a :href="'#/watch/' + r.id" @click.prevent="openWatch(r.id, r.url)" style="word-break:break-all;cursor:pointer">
+                <span x-text="r.submitterId || getUrlTitle(r.url)"></span>
+                <br>
+                <span style="font-size:10px;color:#808080" x-text="r.url"></span>
+              </a>
+            </template>
+          </div>
+          <div>
+            <template x-for="tag in r.tags" :key="tag">
+              <span class="tag" @click="handleSearchTagClick(tag)" x-text="tag"></span>
+            </template>
+          </div>
+            <!-- video-aware preview: click to open watch page, iframe preview for others -->
+           <template x-if="isVideoUrl(r.url)">
+             <div>
+               <div @click="openWatch(r.id, r.url)" style="position:relative;cursor:pointer;margin-top:4px;border:1px solid #808080;background:#000;min-height:90px;display:flex;align-items:center;justify-content:center;overflow:hidden">
+                 <template x-if="getVideoFrame(r.url)">
+                   <img :src="getVideoFrame(r.url)" style="width:100%;display:block;max-height:180px">
+                 </template>
+                  <template x-if="!getVideoFrame(r.url) && !videoFrameLoading[r.url]">
+                    <span style="color:#FFF;font-size:12px">[Click to Watch]</span>
+                 </template>
+                 <template x-if="videoFrameLoading[r.url]">
+                   <span style="color:#FFF;font-size:12px">Loading...</span>
+                 </template>
+                 <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:28px;color:#FFF;text-shadow:0 0 6px #000;background:rgba(0,0,0,0.5);width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center">&#9654;</div>
+               </div>
+               <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#666;margin-top:1px">
+                 <span x-text="(watchViews[r.id] || 0) + ' view(s)'"></span>
+                 <span style="cursor:pointer;color:#0000FF;text-decoration:underline" @click="copyEmbed(r.url)">[Embed]</span>
+               </div>
+             </div>
+           </template>
+          <template x-if="!isVideoUrl(r.url)">
+            <div class="preview-wrap" style="margin-top:4px;width:100%;height:150px;overflow:hidden;position:relative;border:1px solid #808080;background:#FFF">
+              <iframe :src="r.url" style="position:absolute;top:0;left:0;width:300%;height:600%;border:none;transform:scale(0.333);transform-origin:0 0;background:#FFF;pointer-events:none" sandbox="allow-scripts allow-same-origin" scrolling="no"></iframe>
+            </div>
+          </template>
+      </template>
+      <div class="pagination" x-show="totalPages > 1">
+        <template x-for="p in totalPages" :key="p">
+          <button :class="{ active: p === currentPage }" @click="goToPage(p)" x-text="p"></button>
+        </template>
+      </div>
+    </div>
+  </div>
+
+  <!-- VIDEO PAGE (#/video) -->
+  <div x-show="page === 'video'">
+
+  <!-- VIDEO SUBMIT -->
+  <div class="window">
+    <div class="window-title">
+      <span> Submit Video</span>
+      <span style="font-weight:normal;font-size:12px">All fields matter!</span>
+      <span style="margin-left:auto;display:flex;gap:4px">
+        <button class="btn" @click="navigate('')" style="font-size:11px;padding:1px 6px">[X] Back</button>
+      </span>
+    </div>
+    <div class="window-body">
+      <div class="field-row">
+        <div style="flex:1">
+          <div class="field-label">URL *</div>
+          <input type="text" x-model="videoUrl" placeholder="https://youtube.com/watch?v=...">
+        </div>
+        <div style="flex:1">
+          <div class="field-label">Title</div>
+          <input type="text" x-model="videoTitle" placeholder="My Cool Video">
+        </div>
+        <div style="flex:1">
+          <div class="field-label">Tags</div>
+          <input type="text" x-model="videoTags" placeholder="comma, separated">
+        </div>
+      </div>
+      <div class="field-row">
+        <div style="flex:1">
+          <div class="field-label">Password</div>
+          <input type="password" x-model="videoPassword" placeholder="required to delete later">
+        </div>
+      </div>
+      <button class="btn btn-success" @click="submitVideo()">Submit</button>
+    </div>
+  </div>
+
+  <!-- VIDEO UPLOADS -->
+  <div class="window">
+    <div class="window-title">
+      <span> Video Uploads</span>
+      
+    </div>
+    <div class="window-body">
+      <template x-if="videoLimitedUploads.length === 0">
+        <div class="empty-state">
+          No video uploads yet.<br>
+          Submit your first video above! <span style="color:red;font-size:20px">&#x261E;</span>
+        </div>
+      </template>
+      <div class="hscroll" x-show="videoLimitedUploads.length > 0">
+        <template x-for="item in videoLimitedUploads" :key="item.id">
+          <div class="item-card hscroll-card">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <div>
+                <span style="font-weight:bold;font-size:12px" x-text="item.submitterId"></span>
+                <span style="font-size:11px;color:#666" x-text="relativeTime(item.timestamp)"></span>
+              </div>
+              <span class="kebab" @click.stop="toggleKebab(item.id, $event, 'videoUploads')">&#x22EE;</span>
+            </div>
+            <div style="margin:4px 0">
+              <span @click="openWatch(item.id, item.url)" style="cursor:pointer;word-break:break-all;color:#0000FF;text-decoration:underline" x-text="item.title || getUrlTitle(item.url)"></span>
+            </div>
+            <div>
+              <template x-for="tag in item.tags" :key="tag">
+                <span class="tag" @click="handleTagClick(tag, item.id)" x-text="tag"></span>
+              </template>
+            </div>
+            <template x-if="openMenuUid === 'videoUploads|' + item.id">
+              <div class="menu-box" :style="kebabPos" @click.outside="closeKebab('videoUploads')" style="position:fixed">
+                <div @click="videoInstantDelete(item.id)">Delete (Instant)</div>
+                <div @click="videoReportDeletion(item.id)">(!) Report Deletion</div>
+                <div @click="videoOwnerTag(item.id)">Tag Suggest</div>
+              </div>
+            </template>
+          </div>
+        </template>
+      </div>
+      <div x-show="videos.length > VISIBLE_LIMIT" style="text-align:center;margin-top:4px">
+        <a href="#/video-uploads" style="color:#0000FF;text-decoration:underline;cursor:pointer;font-size:12px">More</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- VIDEO ACTIVITY -->
+  <div class="window">
+    <div class="window-title">
+      <span> Video Activity</span>
+    </div>
+    <div class="window-body">
+      <template x-if="videoLimitedAppealed.length === 0">
+        <div class="empty-state">No video activity yet.</div>
+      </template>
+      <div class="hscroll" x-show="videoLimitedAppealed.length > 0">
+        <template x-for="item in videoLimitedAppealed" :key="item.id">
+          <div class="item-card hscroll-card">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span x-text="videoAppealMeta(item)" style="font-size:11px;color:#555"></span>
+              <span class="kebab" @click.stop="toggleKebab(item.id, $event, 'videoActivity')">&#x22EE;</span>
+            </div>
+            <div style="margin-top:4px">
+              <span x-text="item.title || getUrlTitle(item.url)" style="word-break:break-all;font-size:11px"></span>
+            </div>
+            <div style="margin-top:4px;display:flex;align-items:center;gap:6px" x-data="{ v: videoVoting[item.id] || {} }">
+              <button class="vote-btn" :class="{ active: v.userVote === 'agree' }" @click="videoVote(item.id, 'agree')"><span x-text="v.vote || 0"></span> Agree</button>
+              <button class="vote-btn" :class="{ active: v.userVote === 'disagree' }" @click="videoVote(item.id, 'disagree')"><span x-text="v.notVote || 0"></span> Disagree</button>
+            </div>
+            <div class="progress-bar" x-show="videoVoting[item.id] && videoVoting[item.id].pendingUntil">
+              <div class="progress-fill" :style="'width:' + countdownProgress(videoVoting[item.id].pendingUntil, videoVoting[item.id].pendingDuration, tick) + '%'"></div>
+              <span class="progress-text" x-text="timeRemaining(videoVoting[item.id].pendingUntil, tick)"></span>
+            </div>
+            <template x-if="openMenuUid === 'videoActivity|' + item.id">
+              <div class="menu-box" :style="kebabPos" @click.outside="closeKebab('videoActivity')" style="position:fixed">
+                <div @click="videoInstantDelete(item.id)">Delete (Instant)</div>
+                <div @click="videoReportDeletion(item.id)">(!) Report Deletion</div>
+              </div>
+            </template>
+          </div>
+        </template>
+      </div>
+      <div x-show="videoAppealedItems.length > VISIBLE_LIMIT" style="text-align:center;margin-top:4px">
+        <a href="#/video-activity" style="color:#0000FF;text-decoration:underline;cursor:pointer;font-size:12px">More</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- VIDEO RECENTLY VIEWED -->
+  <div class="window">
+    <div class="window-title">
+      <span> Video Recently Viewed</span>
+    </div>
+    <div class="window-body">
+      <template x-if="videoLimitedViewed.length === 0">
+        <div class="empty-state">No video views yet.</div>
+      </template>
+      <div class="hscroll" x-show="videoLimitedViewed.length > 0">
+        <template x-for="entry in videoLimitedViewed" :key="entry.itemId + entry.timestamp">
+          <div class="item-card hscroll-card">
+            <div style="margin:4px 0">
+              <span @click="openWatch(entry.itemId, videoLinkedUrl(entry))" style="cursor:pointer;word-break:break-all;font-size:11px;color:#0000FF;text-decoration:underline" x-text="entry.title || getUrlTitle(videoLinkedUrl(entry))"></span>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span style="font-size:11px;color:#666;margin-left:4px" x-text="relativeTime(entry.timestamp)"></span>
+            </div>
+          </div>
+        </template>
+      </div>
+      <div x-show="videoTodayViewed.length > VISIBLE_LIMIT" style="text-align:center;margin-top:4px">
+        <a href="#/video-viewed" style="color:#0000FF;text-decoration:underline;cursor:pointer;font-size:12px">More</a>
+      </div>
+    </div>
+  </div>
+
+  </div>
+
+  <!-- DEDICATED PAGE: ALL UPLOADS (#/uploads) -->
+  <div class="window" x-show="page === 'uploads'">
+    <div class="window-title">
+      <span> All Uploads</span>
+      <span style="margin-left:auto;display:flex;gap:4px">
+        <button class="btn" @click="navigate('')" style="font-size:11px;padding:1px 6px">[X] Back</button>
+      </span>
+    </div>
+    <div class="window-body">
+      <div class="hscroll">
+        <template x-for="item in uploads" :key="item.id">
+          <div class="item-card hscroll-card">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span style="font-weight:bold;font-size:12px" x-text="item.submitterId"></span>
+              <span style="font-size:11px;color:#666" x-text="relativeTime(item.timestamp)"></span>
+            </div>
+            <div style="margin:4px 0">
+              <a :href="item.url" target="_blank" @click.prevent="trackUrlClick(item.id, item.url)" style="word-break:break-all">
+                <span x-text="getUrlTitle(item.url)"></span>
+                <br>
+                <span style="font-size:10px;color:#808080" x-text="item.url"></span>
+              </a>
+            </div>
+            <div>
+              <template x-for="tag in item.tags" :key="tag">
+                <span class="tag" @click="handleTagClick(tag, item.id)" x-text="tag"></span>
+              </template>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+  </div>
+
+  <!-- DEDICATED PAGE: ALL ACTIVITY (#/activity) -->
+  <div class="window" x-show="page === 'activity'">
+    <div class="window-title">
+      <span> All Activity</span>
+      <span style="margin-left:auto;display:flex;gap:4px">
+        <button class="btn" @click="navigate('')" style="font-size:11px;padding:1px 6px">[X] Back</button>
+      </span>
+    </div>
+    <div class="window-body">
+      <div class="hscroll">
+        <template x-for="item in appealedItems" :key="item.id">
+          <div class="item-card hscroll-card">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span x-text="appealMeta(item)" style="font-size:11px;color:#555"></span>
+            </div>
+            <div style="margin-top:4px">
+              <span x-text="getUrlTitle(item.url)" style="word-break:break-all;font-size:11px"></span>
+              <br>
+              <span style="font-size:10px;color:#808080;word-break:break-all" x-text="item.url"></span>
+            </div>
+            <div style="margin-top:4px;display:flex;align-items:center;gap:6px" x-data="{ v: voting[item.id] || {} }">
+              <button class="vote-btn" :class="{ active: v.userVote === 'agree' }" @click="handleVote(item.id, 'agree')"><span x-text="v.vote || 0"></span> Agree</button>
+              <button class="vote-btn" :class="{ active: v.userVote === 'disagree' }" @click="handleVote(item.id, 'disagree')"><span x-text="v.notVote || 0"></span> Disagree</button>
+            </div>
+            <div class="progress-bar" x-show="voting[item.id] && voting[item.id].pendingUntil">
+              <div class="progress-fill" :style="'width:' + countdownProgress(voting[item.id].pendingUntil, voting[item.id].pendingDuration, tick) + '%'"></div>
+              <span class="progress-text" x-text="timeRemaining(voting[item.id].pendingUntil, tick)"></span>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+  </div>
+
+  <!-- DEDICATED PAGE: ALL VIEWED (#/viewed) -->
+  <div class="window" x-show="page === 'viewed'">
+    <div class="window-title">
+      <span> All Viewed</span>
+      <span style="margin-left:auto;display:flex;gap:4px">
+        <button class="btn" @click="navigate('')" style="font-size:11px;padding:1px 6px">[X] Back</button>
+      </span>
+    </div>
+    <div class="window-body">
+      <div class="hscroll">
+        <template x-for="entry in todayViewed" :key="entry.itemId + entry.timestamp">
+          <div class="item-card hscroll-card">
+            <div style="margin:4px 0">
+              <a :href="linkedUrl(entry)" target="_blank" @click.prevent="trackUrlClick(entry.itemId, linkedUrl(entry))" style="word-break:break-all;font-size:11px">
+                <span x-text="getUrlTitle(linkedUrl(entry))"></span>
+                <br>
+                <span style="font-size:10px;color:#808080" x-text="linkedUrl(entry)"></span>
+              </a>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span style="font-size:11px;color:#666;margin-left:4px" x-text="relativeTime(entry.timestamp)"></span>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+  </div>
+
+  <!-- DEDICATED PAGE: ALL VIDEO UPLOADS (#/video-uploads) -->
+  <div class="window" x-show="page === 'video-uploads'">
+    <div class="window-title">
+      <span> All Video Uploads</span>
+      <span style="margin-left:auto;display:flex;gap:4px">
+        <button class="btn" @click="navigate('/video')" style="font-size:11px;padding:1px 6px">[X] Back</button>
+      </span>
+    </div>
+    <div class="window-body">
+      <div class="hscroll">
+        <template x-for="item in videos" :key="item.id">
+          <div class="item-card hscroll-card">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span style="font-weight:bold;font-size:12px" x-text="item.submitterId"></span>
+              <span style="font-size:11px;color:#666" x-text="relativeTime(item.timestamp)"></span>
+            </div>
+            <div style="margin:4px 0">
+              <span @click="openWatch(item.id, item.url)" style="cursor:pointer;word-break:break-all;color:#0000FF;text-decoration:underline" x-text="item.title || getUrlTitle(item.url)"></span>
+            </div>
+            <div>
+              <template x-for="tag in item.tags" :key="tag">
+                <span class="tag" @click="handleTagClick(tag, item.id)" x-text="tag"></span>
+              </template>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+  </div>
+
+  <!-- DEDICATED PAGE: ALL VIDEO ACTIVITY (#/video-activity) -->
+  <div class="window" x-show="page === 'video-activity'">
+    <div class="window-title">
+      <span> All Video Activity</span>
+      <span style="margin-left:auto;display:flex;gap:4px">
+        <button class="btn" @click="navigate('/video')" style="font-size:11px;padding:1px 6px">[X] Back</button>
+      </span>
+    </div>
+    <div class="window-body">
+      <div class="hscroll">
+        <template x-for="item in videoAppealedItems" :key="item.id">
+          <div class="item-card hscroll-card">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span x-text="videoAppealMeta(item)" style="font-size:11px;color:#555"></span>
+            </div>
+            <div style="margin-top:4px">
+              <span x-text="item.title || getUrlTitle(item.url)" style="word-break:break-all;font-size:11px"></span>
+            </div>
+            <div style="margin-top:4px;display:flex;align-items:center;gap:6px" x-data="{ v: videoVoting[item.id] || {} }">
+              <button class="vote-btn" :class="{ active: v.userVote === 'agree' }" @click="videoVote(item.id, 'agree')"><span x-text="v.vote || 0"></span> Agree</button>
+              <button class="vote-btn" :class="{ active: v.userVote === 'disagree' }" @click="videoVote(item.id, 'disagree')"><span x-text="v.notVote || 0"></span> Disagree</button>
+            </div>
+            <div class="progress-bar" x-show="videoVoting[item.id] && videoVoting[item.id].pendingUntil">
+              <div class="progress-fill" :style="'width:' + countdownProgress(videoVoting[item.id].pendingUntil, videoVoting[item.id].pendingDuration, tick) + '%'"></div>
+              <span class="progress-text" x-text="timeRemaining(videoVoting[item.id].pendingUntil, tick)"></span>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+  </div>
+
+  <!-- DEDICATED PAGE: ALL VIDEO VIEWED (#/video-viewed) -->
+  <div class="window" x-show="page === 'video-viewed'">
+    <div class="window-title">
+      <span> All Video Viewed</span>
+      <span style="margin-left:auto;display:flex;gap:4px">
+        <button class="btn" @click="navigate('/video')" style="font-size:11px;padding:1px 6px">[X] Back</button>
+      </span>
+    </div>
+    <div class="window-body">
+      <div class="hscroll">
+        <template x-for="entry in videoTodayViewed" :key="entry.itemId + entry.timestamp">
+          <div class="item-card hscroll-card">
+            <div style="margin:4px 0">
+              <span @click="openWatch(entry.itemId, videoLinkedUrl(entry))" style="cursor:pointer;word-break:break-all;font-size:11px;color:#0000FF;text-decoration:underline" x-text="entry.title || getUrlTitle(videoLinkedUrl(entry))"></span>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span style="font-size:11px;color:#666;margin-left:4px" x-text="relativeTime(entry.timestamp)"></span>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+  </div>
+
+  <!-- WATCH PAGE (#/watch/{id}) -->
+  <div x-show="page === 'watch'">
+    <div class="title-bar" style="margin-bottom:4px">
+      <span x-text="watchFetchedData ? watchFetchedData.title : (watchItem ? watchItem.url : 'Watch')" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:70%"></span>
+      <span style="display:flex;gap:4px">
+        <button class="btn" @click="navigate('')" style="font-size:11px;padding:1px 6px">[X] Close</button>
+      </span>
+    </div>
+    <div class="watch-grid">
+      <div class="watch-player-area" style="border:2px ridge #C0C0C0" x-init="fetchWatchVideo()">
+        <div style="background:#000;position:relative;aspect-ratio:16/9;display:flex;align-items:center;justify-content:center;overflow:hidden">
+          <template x-if="!watchItem">
+            <span style="color:#808080;font-size:14px">Video not found.</span>
+          </template>
+          <template x-if="watchVideoLoading">
+            <span style="color:#808080;font-size:14px">Loading video data...</span>
+          </template>
+          <template x-if="watchVideoInfo && watchVideoInfo.type === 'file' && !watchVideoLoading">
+            <video id="watchVideoEl" x-ref="watchVideo" :src="watchVideoSrc" @loadeddata="initPlyr()" style="width:100%;height:100%;display:block" playsinline></video>
+          </template>
+          <template x-if="watchVideoInfo && watchVideoInfo.type !== 'file'">
+            <iframe :src="watchEmbedUrl" style="width:100%;height:100%;border:none;display:block" allowfullscreen allow="autoplay;encrypted-media"></iframe>
+          </template>
+          <template x-if="watchItem && !watchVideoInfo">
+            <span style="color:#808080;font-size:14px">Not a video URL.</span>
+          </template>
+        </div>
+        <template x-if="watchFetchInfo">
+          <div style="display:flex;gap:10px;padding:2px 8px;background:#FFF;color:#808080;font-size:10px;font-family:monospace;border-top:1px solid #C0C0C0;flex-wrap:wrap">
+            <span>Views: <b x-text="watchViewCount" style="color:#000"></b></span>
+            <span>Status: <b x-text="watchFetchInfo.status" style="color:#000"></b></span>
+            <span>Type: <b x-text="watchFetchInfo.contentType" style="color:#000"></b></span>
+            <span>Bytes: <b x-text="watchProgressBytes.total ? formatBytes(watchProgressBytes.loaded) + ' / ' + formatBytes(watchProgressBytes.total) : (watchProgressBytes.loaded ? formatBytes(watchProgressBytes.loaded) : watchFetchInfo.contentLength)" style="color:#000"></b></span>
+            <span x-show="watchProgressBytes.percent > 0">DL: <b x-text="watchProgressBytes.percent + '%'" style="color:#000"></b></span>
+            <span>CORS: <b x-text="watchFetchInfo.corsOrigin" style="color:#000"></b></span>
+            <span x-show="watchFetchInfo.error" style="color:#800">ERR: <b x-text="watchFetchInfo.error" style="color:#800"></b></span>
+          </div>
+        </template>
+      </div>
+      <div class="watch-sidebar" style="border:2px ridge #C0C0C0;background:#FFFFF0;padding:6px;font-size:12px">
+        <div style="word-break:break-all;font-size:11px;margin-bottom:4px;padding-bottom:4px;border-bottom:1px solid #C0C0C0">
+          <a :href="watchItem ? watchItem.url : '#'" target="_blank" x-text="watchItem ? watchItem.url : ''" style="color:#0000FF"></a>
+          <template x-if="watchFetchLoading">
+            <div style="color:#808080;font-size:10px;margin-top:2px">Fetching page data...</div>
+          </template>
+          <template x-if="watchFetchedData && watchFetchedData.image">
+            <div style="margin-top:4px;border:1px solid #808080;overflow:hidden;max-height:120px">
+              <img :src="watchFetchedData.image" style="width:100%;display:block" @error="watchFetchedData.image = ''">
+            </div>
+          </template>
+          <template x-if="watchFetchedData && watchFetchedData.desc">
+            <div style="margin-top:4px;font-size:10px;color:#555" x-text="watchFetchedData.desc"></div>
+          </template>
+        </div>
+        <div style="font-weight:bold;font-size:12px;color:#000080;margin-bottom:2px">Tags</div>
+        <div style="margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid #C0C0C0">
+          <template x-if="watchItem && watchItem.tags && watchItem.tags.length">
+            <template x-for="tag in watchItem.tags" :key="tag">
+              <span class="tag" @click="searchTag(tag)" x-text="tag" style="cursor:pointer;margin:1px;display:inline-block;background:#FFFF00;padding:1px 5px;border:1px outset #808080;font-size:11px"></span>
+            </template>
+          </template>
+          <template x-if="!watchItem || !watchItem.tags || !watchItem.tags.length">
+            <span style="color:#808080;font-size:11px">No tags.</span>
+          </template>
+        </div>
+        <div style="font-weight:bold;font-size:12px;color:#000080;margin-bottom:2px">Related</div>
+        <div style="margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid #C0C0C0;max-height:180px;overflow-y:auto">
+          <template x-for="rel in getRelatedVideos()" :key="rel.id">
+            <div style="padding:3px 0;border-bottom:1px dotted #C0C0C0;cursor:pointer" @click="openWatch(rel.id, rel.url)">
+              <div style="font-size:11px;word-break:break-all;color:#0000FF;text-decoration:underline" x-text="rel.url"></div>
+              <div style="font-size:10px;color:#666" x-text="rel.matchCount + ' matching tag(s)'"></div>
+            </div>
+          </template>
+          <template x-if="getRelatedVideos().length === 0">
+            <div style="color:#808080;font-size:11px;padding:4px">None found.</div>
+          </template>
+        </div>
+        <div style="font-weight:bold;font-size:12px;color:#000080;margin-bottom:2px">Metadata</div>
+        <div>
+          <template x-for="c in getWatchComments()" :key="c.label">
+            <div style="padding:2px 0;font-size:11px;color:#333">
+              <span style="font-weight:bold" x-text="c.label + ':'"></span> <span x-text="c.value"></span>
+            </div>
+          </template>
+        </div>
+      </div>
+      <div class="watch-bottom" style="border:2px ridge #C0C0C0;background:#FFFFF0;padding:6px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;border-bottom:1px solid #808080;padding-bottom:2px">
+          <span style="font-weight:bold;font-size:12px;color:#000080">Recently Viewed</span>
+        </div>
+        <div class="hscroll">
+          <template x-for="entry in limitedViewed" :key="entry.itemId">
+            <div class="item-card hscroll-card" style="cursor:pointer;padding:4px 6px;margin-bottom:0" @click="openWatch(entry.itemId, linkedUrl(entry))">
+              <div style="margin:2px 0">
+                <span x-text="getUrlTitle(linkedUrl(entry))" style="word-break:break-all;font-size:11px;color:#0000FF"></span>
+                <br>
+                <span style="font-size:10px;color:#808080;word-break:break-all" x-text="linkedUrl(entry)"></span>
+              </div>
+              <div style="font-size:10px;color:#666" x-text="relativeTime(entry.timestamp)"></div>
+            </div>
+          </template>
+          <template x-if="limitedViewed.length === 0">
+            <div style="color:#808080;font-size:11px;padding:4px;min-width:200px">No viewed items yet.</div>
+          </template>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAG CONTEXT MENU -->
+  <template x-if="contextTarget">
+    <div class="menu-box" :style="tagMenuPos" @click.outside="closeTagContext()" style="position:fixed">
+      <div @click="removeTagFromContext()">[X] Remove tag</div>
+    </div>
+  </template>
+
+  <!-- APPEAL MODAL -->
+  <div x-show="appealModalId" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:1000;display:flex;align-items:center;justify-content:center">
+    <div style="background:#C0C0C0;border:3px outset #FFF;padding:16px;min-width:300px;text-align:center">
+      <div style="font-weight:bold;font-size:16px;margin-bottom:12px">Appeal Type</div>
+      <button class="btn btn-primary" @click="submitAppeal('deletion')" style="margin:4px">(!) Report Deletion</button>
+      <button class="btn btn-success" @click="submitAppeal('tag')" style="margin:4px"> Suggest Tags</button>
+      <br><br>
+      <button class="btn" @click="appealModalId = null">Cancel</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
