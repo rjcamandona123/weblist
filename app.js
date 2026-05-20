@@ -1,693 +1,1062 @@
-'use strict';
+document.addEventListener('alpine:init', () => {
+  Alpine.data('weblist', () => ({
+    uploads: [],
+    recentlyViewed: [],
+    voting: {},
+    offenses: {},
+    search: '',
+    searchResults: null,
+    resultsPage: 1,
+    openMenuUid: null,
+    kebabPos: null,
+    contextTarget: null,
+    tagMenuPos: null,
+    tagLongPressTimer: null,
+    longPressFired: false,
+    appealModalId: null,
+    urlInput: '',
+    tagInput: '',
+    passwordInput: '',
+    expandedSections: {},
+    loading: false,
+    tick: 0,
+    deviceId: '',
+    VISIBLE_LIMIT: 5,
+    RESULTS_PER_PAGE: 20,
+    searchMode: 'all',
+    searchLayout: 'list',
 
-// ── Logger ──
-const log = (...args) => console.log('[Weblist]', ...args);
-const warn = (...args) => console.warn('[Weblist]', ...args);
-const error = (...args) => console.error('[Weblist]', ...args);
+    NS: 'weblist:',
+    page: '',
+    videos: [],
+    videoUrl: '',
+    videoTitle: '',
+    videoTags: '',
+    videoPassword: '',
+    videoVoting: {},
+    videoOffenses: {},
+    videoRecentlyViewed: [],
+    videoExpandedSections: {},
+    videoFrameCache: {},
+    videoFrameLoading: {},
+    watchId: null,
+    watchPlaying: false,
+    watchMuted: false,
+    watchLooped: false,
+    watchCurrentTime: 0,
+    watchDuration: 0,
+    watchProgress: 0,
+    watchViews: {},
+    watchFetchedData: null,
+    watchFetchLoading: false,
+    watchVideoSrc: null,
+    watchVideoLoading: false,
+    watchFetchInfo: null,
+    watchVolume: 1,
+    watchProgressBytes: { loaded: 0, total: 0, percent: 0 },
+    _watchMS: null,
+    _watchSB: null,
+    _watchAbort: null,
+    _plyr: null,
+    searchContentType: 'all',
 
-// ── Storage ──
-const NS = 'weblist:';
+    init() {
+      this.loadState();
+      this.deviceId = this.getDeviceId();
+      window.addEventListener('hashchange', () => this.handleRoute());
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) { this.tick++; this.processGovernance(); this.videoGovernance(); }
+      });
+      this.handleRoute();
+      this.startMidnightTimer();
+      setInterval(() => { this.tick++; this.processGovernance(); this.videoGovernance(); }, 1000);
+    },
 
-function safeGet(key, fallback) {
-  try {
-    const raw = localStorage.getItem(NS + key);
-    return raw === null ? fallback : JSON.parse(raw);
-  } catch (e) {
-    warn('read error for', key, e.message);
-    return fallback;
-  }
-}
+    safeGet(key, fallback) {
+      try {
+        const raw = localStorage.getItem(this.NS + key);
+        return raw === null ? fallback : JSON.parse(raw);
+      } catch { return fallback; }
+    },
+    safeSet(key, val) {
+      try { localStorage.setItem(this.NS + key, JSON.stringify(val)); return true; } catch { return false; }
+    },
+    safeGetLines(key) {
+      try {
+        const raw = localStorage.getItem(this.NS + key);
+        if (!raw) return [];
+        return raw.split('\n').filter(Boolean).map(l => JSON.parse(l));
+      } catch { return []; }
+    },
+    safeSetLines(key, arr) {
+      try { localStorage.setItem(this.NS + key, arr.map(x => JSON.stringify(x)).join('\n')); return true; } catch { return false; }
+    },
 
-function safeSet(key, val) {
-  try {
-    localStorage.setItem(NS + key, JSON.stringify(val));
-    return true;
-  } catch (e) {
-    error('write error for', key, e.message);
-    return false;
-  }
-}
+    loadState() {
+      this.uploads = this.safeGetLines('uploads');
+      this.recentlyViewed = this.safeGetLines('recentlyViewed');
+      this.voting = this.safeGet('voting', {});
+      this.offenses = this.safeGet('offenses', {});
+      this.videos = this.safeGetLines('videos');
+      this.videoVoting = this.safeGet('videoVoting', {});
+      this.videoOffenses = this.safeGet('videoOffenses', {});
+      this.videoRecentlyViewed = this.safeGetLines('videoRecentlyViewed');
+      this.watchViews = this.safeGet('watchViews', {});
+      this.watchViews = this.safeGet('watchViews', {});
+    },
+    persist(key) {
+      if (key === 'uploads' || key === 'recentlyViewed' || key === 'videos' || key === 'videoRecentlyViewed') this.safeSetLines(key, this[key]);
+      else this.safeSet(key, this[key]);
+    },
 
-function safeGetLines(key) {
-  try {
-    const raw = localStorage.getItem(NS + key);
-    if (!raw) return [];
-    return raw.split('\n').filter(Boolean).map(l => JSON.parse(l));
-  } catch (e) {
-    warn('readLines error for', key, e.message);
-    return [];
-  }
-}
+    uid() {
+      return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    },
+    TOTAL_PENDING: 18000000,
+    getPendingDuration(offenseCount) {
+      return this.TOTAL_PENDING / Math.pow(2, offenseCount || 0);
+    },
+    isToday(ts) {
+      const d = new Date(ts), n = new Date();
+      return d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth() && d.getDate() === n.getDate();
+    },
+    msUntilMidnight() {
+      const n = new Date();
+      return new Date(n.getFullYear(), n.getMonth(), n.getDate() + 1).getTime() - n.getTime();
+    },
+    relativeTime(ts) {
+      const s = Math.floor((Date.now() - ts) / 1000);
+      if (s < 60) return 'just now';
+      const m = Math.floor(s / 60);
+      if (m < 60) return m + 'm ago';
+      const h = Math.floor(m / 60);
+      if (h < 24) return h + 'h ago';
+      return Math.floor(h / 24) + 'd ago';
+    },
+    timeRemaining(ts, _tick) {
+      const diff = ts - Date.now();
+      if (diff <= 0) return '00:00:00';
+      const s = Math.floor(diff / 1000);
+      const h = Math.floor(s / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      const sec = s % 60;
+      return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0');
+    },
+    countdownProgress(ts, dur) {
+      if (!ts || !dur) return 0;
+      const diff = ts - Date.now();
+      if (diff <= 0) return 100;
+      return Math.min(100, Math.round(((dur - diff) / dur) * 100));
+    },
+    getDeviceId() {
+      const stored = this.safeGet('deviceId', null);
+      if (stored) return stored;
+      const fp = navigator.userAgent + '|' + screen.width + 'x' + screen.height + '|' + new Date().getTimezoneOffset() + '|' + navigator.language;
+      let hash = 0;
+      for (let i = 0; i < fp.length; i++) { hash = ((hash << 5) - hash) + fp.charCodeAt(i); hash |= 0; }
+      const id = 'dev_' + Math.abs(hash).toString(36) + this.uid().slice(0, 4);
+      this.safeSet('deviceId', id);
+      return id;
+    },
 
-function safeSetLines(key, arr) {
-  try {
-    localStorage.setItem(NS + key, arr.map(x => JSON.stringify(x)).join('\n'));
-    return true;
-  } catch (e) {
-    error('writeLines error for', key, e.message);
-    return false;
-  }
-}
+    get showingSearch() { return this.searchResults !== null; },
+    get appealedItems() { return this.uploads.filter(u => this.voting[u.id] && this.voting[u.id].appealTimestamp); },
+    get todayViewed() { return this.recentlyViewed.filter(x => this.isToday(x.timestamp)); },
+    get totalResults() { return this.searchResults ? this.searchResults.length : 0; },
+    get totalPages() { return Math.ceil(this.totalResults / this.RESULTS_PER_PAGE) || 1; },
+    get currentPage() { return Math.min(this.resultsPage, this.totalPages); },
+    get pageResults() {
+      if (!this.searchResults) return [];
+      const start = (this.currentPage - 1) * this.RESULTS_PER_PAGE;
+      return this.searchResults.slice(start, start + this.RESULTS_PER_PAGE);
+    },
+    get relatedTags() {
+      if (!this.searchResults) return [];
+      const seed = [];
+      const tags = [];
+      this.searchResults.forEach(r => (r.tags || []).forEach(t => { if (!seed.includes(t) && !tags.includes(t)) { seed.push(t); tags.push(t); } }));
+      this.uploads.forEach(u => { if (u.tags.some(t => seed.includes(t))) u.tags.forEach(t => { if (!tags.includes(t)) tags.push(t); }); });
+      return tags;
+    },
+    limited(items, key) {
+      if (!items.length) return [];
+      if (key && this.expandedSections[key]) return items;
+      return items.slice(0, this.VISIBLE_LIMIT);
+    },
+    get limitedAppealed() { return this.limited(this.appealedItems, 'activity'); },
+    get limitedUploads() { return this.limited(this.uploads, 'uploads'); },
+    get limitedViewed() { return this.limited(this.todayViewed, 'viewed'); },
 
-// ── Utilities ──
-function uid() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-}
+    get videoAppealedItems() { return this.videos.filter(v => this.videoVoting[v.id] && this.videoVoting[v.id].appealTimestamp); },
+    get videoTodayViewed() { return this.videoRecentlyViewed.filter(x => this.isToday(x.timestamp)); },
+    get videoLimitedAppealed() { return this.limited(this.videoAppealedItems, 'videoActivity'); },
+    get videoLimitedUploads() { return this.limited(this.videos, 'videoUploads'); },
+    get videoLimitedViewed() { return this.limited(this.videoTodayViewed, 'videoViewed'); },
 
-function getPendingDuration(n) {
-  if (n === 0) return 18000000;
-  if (n === 1) return 7200000;
-  return 3600000;
-}
-
-function isToday(ts) {
-  const d = new Date(ts);
-  const n = new Date();
-  return d.getFullYear() === n.getFullYear() &&
-    d.getMonth() === n.getMonth() &&
-    d.getDate() === n.getDate();
-}
-
-function msUntilMidnight() {
-  const n = new Date();
-  return new Date(n.getFullYear(), n.getMonth(), n.getDate() + 1).getTime() - n.getTime();
-}
-
-function relativeTime(ts) {
-  const s = Math.floor((Date.now() - ts) / 1000);
-  if (s < 60) return 'just now';
-  const m = Math.floor(s / 60);
-  if (m < 60) return m + 'm ago';
-  const h = Math.floor(m / 60);
-  if (h < 24) return h + 'h ago';
-  return Math.floor(h / 24) + 'd ago';
-}
-
-function timeRemaining(ts) {
-  const diff = ts - Date.now();
-  if (diff <= 0) return 'any moment';
-  const s = Math.floor(diff / 1000);
-  const m = Math.floor(s / 60);
-  if (m < 60) return m + 'm left';
-  const h = Math.floor(m / 60);
-  if (h < 24) return h + 'h left';
-  return Math.floor(h / 24) + 'd left';
-}
-
-function getDeviceId() {
-  const stored = safeGet('deviceId', null);
-  if (stored) return stored;
-
-  const fp = navigator.userAgent + '|' +
-    screen.width + 'x' + screen.height + '|' +
-    new Date().getTimezoneOffset() + '|' +
-    navigator.language;
-
-  let hash = 0;
-  for (let i = 0; i < fp.length; i++) {
-    hash = ((hash << 5) - hash) + fp.charCodeAt(i);
-    hash |= 0;
-  }
-
-  const id = 'dev_' + Math.abs(hash).toString(36) + uid().slice(0, 4);
-  safeSet('deviceId', id);
-  return id;
-}
-
-// ── DOM Helper ──
-function el(tag, attrs, ...kids) {
-  const e = document.createElement(tag);
-  if (attrs) {
-    for (const attr in attrs) {
-      if (attr === 'className') e.className = attrs[attr];
-      else if (attr === 'style' && typeof attrs[attr] === 'object') {
-        for (const p in attrs[attr]) e.style[p] = attrs[attr][p];
-      } else if (attr === 'dataset') {
-        for (const k in attrs[attr]) e.dataset[k] = attrs[attr][k];
-      } else {
-        e.setAttribute(attr, attrs[attr]);
+    isOwner(id) {
+      const u = this.uploads.find(x => x.id === id);
+      return u && u.deviceId === this.deviceId;
+    },
+    linkedUrl(entry) {
+      if (entry.url) return entry.url;
+      const u = this.uploads.find(x => x.id === entry.itemId);
+      return u ? u.url : '';
+    },
+    isVideoOwner(id) {
+      const v = this.videos.find(x => x.id === id);
+      return v && v.deviceId === this.deviceId;
+    },
+    videoLinkedUrl(entry) {
+      if (entry.url) return entry.url;
+      const v = this.videos.find(x => x.id === entry.itemId);
+      return v ? v.url : '';
+    },
+    videoAppealMeta(item) {
+      const v = this.videoVoting[item.id] || {};
+      let s = 'Appealed ' + (v.appealTimestamp ? this.relativeTime(v.appealTimestamp) : 'recently');
+      s += ' \u2022 ' + (v.type === 'tag' ? 'Tag suggestion' : 'Deletion');
+      if (v.suggestedTag) s += ' \u2192 "' + v.suggestedTag + '"';
+      return s;
+    },
+    appealMeta(item) {
+      const v = this.voting[item.id] || {};
+      let s = 'Appealed ' + (v.appealTimestamp ? this.relativeTime(v.appealTimestamp) : 'recently');
+      s += ' \u2022 ' + (v.type === 'tag' ? 'Tag suggestion' : 'Deletion');
+      if (v.suggestedTag) s += ' \u2192 "' + v.suggestedTag + '"';
+      return s;
+    },
+    normalizeUrl(str) {
+      try {
+        const u = new URL(str);
+        u.hostname = u.hostname.replace(/^www\./, '').toLowerCase();
+        u.pathname = u.pathname.replace(/\/+$/, '') || '/';
+        return u.href.toLowerCase();
+      } catch (e) {
+        return str.toLowerCase().replace(/\/+$/, '').replace(/^www\./, '');
       }
-    }
-  }
-  kids.forEach(child => {
-    if (child != null) e.appendChild(typeof child === 'string' ? document.createTextNode(child) : child);
-  });
-  return e;
-}
+    },
+    getUrlTitle(url) {
+      try {
+        const u = new URL(url);
+        let host = u.hostname.replace(/^www\d*\./, '');
+        const parts = host.split('.');
+        let name = parts.length >= 2 ? parts[parts.length - 2] : parts[0];
+        return name.charAt(0).toUpperCase() + name.slice(1);
+      } catch { return url; }
+    },
+    handleUpload() {
+      const url = this.urlInput.trim();
+      if (!url) { alert('URL is required.'); return; }
+      const norm = this.normalizeUrl(url);
+      if (this.uploads.some(u => this.normalizeUrl(u.url) === norm)) { alert('URL already exists.'); return; }
+      const tags = this.tagInput.split(',').map(t => t.trim()).filter(Boolean);
+      const pwd = this.passwordInput.trim();
+      const item = { id: this.uid(), timestamp: Date.now(), url, tags, password: pwd, submitterId: 'anonymous', deviceId: this.deviceId };
+      this.uploads = [...this.uploads, item];
+      this.voting[item.id] = { vote: 0, notVote: 0, offense: 0, userVote: null, appealTimestamp: null };
+      this.urlInput = '';
+      this.tagInput = '';
+      this.persist('uploads');
+      this.persist('voting');
+      this.processGovernance();
+    },
 
-// ── State ──
-let state = {
-  uploads: safeGetLines('uploads'),
-  recentlyViewed: safeGetLines('recentlyViewed'),
-  voting: safeGet('voting', {}),
-  offenses: safeGet('offenses', {}),
-  activeIframes: {},
-  appealModalId: null,
-  search: '',
-  searchResults: null,
-  resultsPage: 1,
-  openMenuId: null,
-  urlInput: '',
-  tagInput: '',
-  submitterInput: '',
-  passwordInput: '',
-  expandedSections: {},
-};
+    trackTagClick(tag, itemId) {
+      const today = this.recentlyViewed.filter(x => this.isToday(x.timestamp));
+      today.unshift({ tag, itemId, timestamp: Date.now() });
+      this.recentlyViewed = today;
+      this.persist('recentlyViewed');
+    },
 
-function persist(key) {
-  return key === 'uploads' || key === 'recentlyViewed'
-    ? safeSetLines(key, state[key])
-    : safeSet(key, state[key]);
-}
+    trackUrlClick(itemId, url) {
+      window.open(url, '_blank');
+      const today = this.recentlyViewed.filter(x => this.isToday(x.timestamp) && x.url !== url);
+      today.unshift({ tag: 'clicked', itemId, url, timestamp: Date.now() });
+      this.recentlyViewed = today;
+      this.persist('recentlyViewed');
+    },
 
-// ── Business Logic ──
-function getVote(id) {
-  return state.voting[id] || { vote: 0, notVote: 0, offense: 0, type: 'deletion' };
-}
+    doSearch() {
+      if (!this.search.trim()) return;
+      this.resultsPage = 1;
+      const raw = this.search.trim();
+      const textQ = raw.replace(/\/tag:\s*(\S+)/gi, '').trim();
+      const exactTag = raw.match(/\/tag:\s*(\S+)/i);
+      const tagExact = exactTag ? exactTag[1].toLowerCase() : null;
 
-function isAppealed(id) {
-  return state.voting[id] && state.voting[id].appealTimestamp;
-}
+      let sourceList = [];
+      if (this.searchContentType === 'video') {
+        sourceList = this.videos.slice();
+      } else if (this.searchContentType === 'link') {
+        sourceList = this.uploads.slice();
+      } else {
+        sourceList = this.uploads.concat(this.videos.map(v => ({ ...v, _isVideo: true })));
+      }
 
-const currentDeviceId = getDeviceId();
+      let matched = sourceList;
+      if (tagExact) {
+        matched = matched.filter(u => u.tags.some(t => t.toLowerCase() === tagExact));
+      }
+      if (textQ) {
+        const q = textQ.toLowerCase();
+        if (this.searchMode === 'url') matched = matched.filter(u => u.url.toLowerCase().includes(q));
+        else if (this.searchMode === 'tags') matched = matched.filter(u => u.tags.some(t => t.toLowerCase().includes(q)));
+        else if (this.searchMode === 'title') matched = matched.filter(u => (this.getUrlTitle(u.url) || '').toLowerCase().includes(q));
+        else matched = matched.filter(u => u.url.toLowerCase().includes(q) || u.tags.some(t => t.toLowerCase().includes(q)));
+      }
+      const groups = {};
+      matched.forEach(u => {
+        if (!groups[u.url]) {
+          const isVid = this.searchContentType !== 'link' && (u._isVideo || this.videos.some(v => v.id === u.id));
+          groups[u.url] = { ids: [], tags: [], timestamp: 0, submitterId: '', deviceId: '', _isVideo: isVid };
+        }
+        const g = groups[u.url];
+        g.ids.push(u.id);
+        u.tags.forEach(t => { if (!g.tags.includes(t)) g.tags.push(t); });
+        if (u.timestamp > g.timestamp) { g.timestamp = u.timestamp; g.submitterId = u.submitterId; g.deviceId = u.deviceId; }
+      });
+      this.searchResults = Object.keys(groups).map(url => {
+        const g = groups[url];
+        return { id: g.ids[0], url, tags: g.tags, timestamp: g.timestamp, submitterId: g.submitterId, deviceId: g.deviceId, _groupIds: g.ids, _isVideo: g._isVideo };
+      });
+      this.navigate('/results', 1);
+    },
 
-function handleUpload() {
-  const url = state.urlInput.trim();
-  if (!url) return;
+    searchTag(tag) { this.search = tag; this.resultsPage = 1; this.doSearch(); },
+    clearSearch() { this.searchResults = null; this.search = ''; this.navigate(''); },
 
-  const rawTags = state.tagInput.split(',').map(t => t.trim()).filter(Boolean);
-  const tagsToAdd = rawTags.filter(t => t[0] !== '-');
+    goVideo() { this.navigate('/video'); },
+    submitVideo() {
+      const url = this.videoUrl.trim();
+      if (!url) { alert('Video URL is required.'); return; }
+      const tags = this.videoTags.split(',').map(t => t.trim()).filter(Boolean);
+      const pwd = this.videoPassword.trim();
+      const title = this.videoTitle.trim() || '';
+      const item = { id: this.uid(), timestamp: Date.now(), url, tags, password: pwd, title, submitterId: 'anonymous', deviceId: this.deviceId };
+      this.videos = [...this.videos, item];
+      this.videoVoting[item.id] = { vote: 0, notVote: 0, offense: 0, userVote: null, appealTimestamp: null };
+      this.videoUrl = '';
+      this.videoTitle = '';
+      this.videoTags = '';
+      this.persist('videos');
+      this.persist('videoVoting');
+      this.videoGovernance();
+    },
 
-  const item = {
-    id: uid(),
-    timestamp: Date.now(),
-    url,
-    tags: tagsToAdd,
-    submitterId: state.submitterInput.trim() || 'anonymous',
-    deviceId: currentDeviceId,
-  };
+    handleVote(itemId, dir) {
+      const voting = { ...this.voting };
+      if (!voting[itemId]) voting[itemId] = { vote: 0, notVote: 0, offense: 0, type: 'deletion', pendingUntil: null };
+      const r = voting[itemId];
+      if (r.userVote === dir) dir = null;
+      else if (r.userVote === 'agree' && dir === 'disagree') { r.vote = Math.max(0, (r.vote || 0) - 1); r.notVote = (r.notVote || 0) + 1; r.userVote = 'disagree'; }
+      else if (r.userVote === 'disagree' && dir === 'agree') { r.notVote = Math.max(0, (r.notVote || 0) - 1); r.vote = (r.vote || 0) + 1; r.userVote = 'agree'; }
+      else if (dir === 'agree') { r.vote = (r.vote || 0) + 1; r.userVote = 'agree'; }
+      else if (dir === 'disagree') { r.notVote = (r.notVote || 0) + 1; r.userVote = 'disagree'; }
+      if (r.type === 'tag') {
+        if (r.vote > r.notVote) {
+          this.uploads = this.uploads.map(u => {
+            if (u.id !== itemId) return u;
+            let tags = [...u.tags];
+            if (r.removeTags) r.removeTags.forEach(t => { tags = tags.filter(x => x !== t); });
+            if (r.suggestedTags) r.suggestedTags.forEach(t => { if (!tags.includes(t)) tags.push(t); });
+            return { ...u, tags };
+          });
+          this.persist('uploads');
+        }
+      } else {
+        if (r.vote > r.notVote) {
+          const dur = this.getPendingDuration(this.offenses[itemId] || 0);
+          r.pendingUntil = Date.now() + dur;
+          r.pendingDuration = dur;
+        } else {
+          r.pendingUntil = null;
+          r.pendingDuration = null;
+        }
+      }
+      this.voting = voting;
+      this.persist('voting');
+      this.processGovernance();
+    },
 
-  state.uploads.push(item);
-  state.voting[item.id] = { vote: 0, notVote: 0, offense: 0, userVote: null, appealTimestamp: null };
-  state.urlInput = '';
-  state.tagInput = '';
-  state.submitterInput = '';
-  persist('uploads');
-  persist('voting');
-  render();
-}
+    videoVote(itemId, dir) {
+      const voting = { ...this.videoVoting };
+      if (!voting[itemId]) voting[itemId] = { vote: 0, notVote: 0, offense: 0, type: 'deletion', pendingUntil: null };
+      const r = voting[itemId];
+      if (r.userVote === dir) dir = null;
+      else if (r.userVote === 'agree' && dir === 'disagree') { r.vote = Math.max(0, (r.vote || 0) - 1); r.notVote = (r.notVote || 0) + 1; r.userVote = 'disagree'; }
+      else if (r.userVote === 'disagree' && dir === 'agree') { r.notVote = Math.max(0, (r.notVote || 0) - 1); r.vote = (r.vote || 0) + 1; r.userVote = 'agree'; }
+      else if (dir === 'agree') { r.vote = (r.vote || 0) + 1; r.userVote = 'agree'; }
+      else if (dir === 'disagree') { r.notVote = (r.notVote || 0) + 1; r.userVote = 'disagree'; }
+      if (r.vote > r.notVote) {
+        const dur = this.getPendingDuration(this.videoOffenses[itemId] || 0);
+        r.pendingUntil = Date.now() + dur;
+        r.pendingDuration = dur;
+      } else {
+        r.pendingUntil = null;
+        r.pendingDuration = null;
+      }
+      this.videoVoting = voting;
+      this.persist('videoVoting');
+      this.videoGovernance();
+    },
 
-function trackTagClick(tag, itemId) {
-  const today = state.recentlyViewed.filter(x => isToday(x.timestamp));
-  today.unshift({ tag, itemId, timestamp: Date.now() });
-  state.recentlyViewed = today;
-  persist('recentlyViewed');
-  render();
-}
+    videoInstantDelete(itemId) {
+      const password = prompt('Enter password to instantly delete this video:');
+      if (!password || !password.trim()) { alert('Delete canceled. Password is required.'); return; }
+      const video = this.videos.find(v => v.id === itemId);
+      if (video && password !== video.password) { alert('Incorrect password. Delete canceled.'); return; }
+      this.videos = this.videos.filter(v => v.id !== itemId);
+      this.videoRecentlyViewed = this.videoRecentlyViewed.filter(e => e.itemId !== itemId);
+      this.openMenuUid = null; this.kebabPos = null;
+      this.persist('videos');
+      this.persist('videoRecentlyViewed');
+      this.videoGovernance();
+    },
 
-function trackUrlClick(itemId) {
-  state.activeIframes[itemId] = !state.activeIframes[itemId];
-  const today = state.recentlyViewed.filter(x => isToday(x.timestamp));
-  today.unshift({ tag: 'clicked', itemId, timestamp: Date.now() });
-  state.recentlyViewed = today;
-  persist('recentlyViewed');
-  render();
-}
+    videoReportDeletion(itemId) {
+      const voting = { ...this.videoVoting };
+      if (!voting[itemId]) voting[itemId] = { vote: 0, notVote: 0, offense: 0, userVote: null, type: 'deletion', appealTimestamp: Date.now(), pendingUntil: null };
+      else { voting[itemId].appealTimestamp = Date.now(); voting[itemId].type = 'deletion'; }
+      this.videoVoting = voting;
+      this.openMenuUid = null; this.kebabPos = null;
+      this.persist('videoVoting');
+      this.videoGovernance();
+    },
 
-const RESULTS_PER_PAGE = 20;
+    videoOwnerTag(itemId) {
+      const tag = prompt('Enter a tag to add:');
+      if (!tag || !tag.trim()) { this.openMenuUid = null; this.kebabPos = null; return; }
+      this.videos = this.videos.map(v => {
+        if (v.id === itemId && !v.tags.includes(tag.trim())) return { ...v, tags: [...v.tags, tag.trim()] };
+        return v;
+      });
+      this.openMenuUid = null; this.kebabPos = null;
+      this.persist('videos');
+      this.videoGovernance();
+    },
 
-function navigate(base, page) {
-  location.hash = page && page > 1 ? base + '/' + page : base;
-  handleRoute();
-}
+    videoGovernance() {
+      const now = Date.now();
+      for (const id in this.videoVoting) {
+        const r = this.videoVoting[id];
+        if (r.pendingUntil && now >= r.pendingUntil && r.vote > r.notVote) {
+          r.pendingUntil = null;
+          this.videos = this.videos.filter(v => v.id !== id);
+          this.videoRecentlyViewed = this.videoRecentlyViewed.filter(e => e.itemId !== id);
+          this.persist('videos');
+          this.persist('videoRecentlyViewed');
+        }
+      }
+      this.persist('videoVoting');
+    },
 
-function handleRoute() {
-  const raw = location.hash.slice(1) || '/';
-  const segs = raw.split('/');
-  const base = '/' + segs[1] || '/';
+    instantDelete(itemId) {
+      const password = prompt('Enter password to instantly delete this item:');
+      if (!password || !password.trim()) { alert('Delete canceled. Password is required.'); return; }
+      const upload = this.uploads.find(u => u.id === itemId);
+      if (upload && password !== upload.password) { alert('Incorrect password. Delete canceled.'); return; }
+      this.uploads = this.uploads.filter(u => u.id !== itemId);
+      this.recentlyViewed = this.recentlyViewed.filter(v => v.itemId !== itemId);
+      this.openMenuUid = null; this.kebabPos = null;
+      this.passwordInput = '';
+      this.persist('uploads');
+      this.persist('recentlyViewed');
+      this.processGovernance();
+    },
 
-  if (base === '/results') {
-    state.resultsPage = parseInt(segs[2], 10) || 1;
-    if (!state.searchResults && state.search.trim()) {
-      doSearch();
-    } else {
-      render();
-    }
-  } else {
-    state.resultsPage = 1;
-    state.searchResults = null;
-    render();
-  }
-}
+    reportDeletion(itemId) {
+      const voting = { ...this.voting };
+      if (!voting[itemId]) voting[itemId] = { vote: 0, notVote: 0, offense: 0, userVote: null, type: 'deletion', appealTimestamp: Date.now(), pendingUntil: null };
+      else { voting[itemId].appealTimestamp = Date.now(); voting[itemId].type = 'deletion'; }
+      this.voting = voting;
+      this.openMenuUid = null; this.kebabPos = null;
+      this.persist('voting');
+      this.processGovernance();
+    },
 
-function doSearch() {
-  const q = state.search.trim().toLowerCase();
-  if (!q) { state.resultsPage = 1; navigate(''); return; }
-
-  const matched = state.uploads.filter(u =>
-    u.url.toLowerCase().includes(q) || u.tags.some(t => t.toLowerCase().includes(q))
-  );
-
-  const groups = {};
-  matched.forEach(u => {
-    if (!groups[u.url]) groups[u.url] = { ids: [], tags: [], timestamp: 0, submitterId: '', deviceId: '' };
-    const g = groups[u.url];
-    g.ids.push(u.id);
-    u.tags.forEach(t => { if (!g.tags.includes(t)) g.tags.push(t); });
-    if (u.timestamp > g.timestamp) {
-      g.timestamp = u.timestamp; g.submitterId = u.submitterId; g.deviceId = u.deviceId;
-    }
-  });
-
-  state.searchResults = Object.keys(groups).map(url => {
-    const g = groups[url];
-    return { id: g.ids[0], url, tags: g.tags, timestamp: g.timestamp, submitterId: g.submitterId, deviceId: g.deviceId, _groupIds: g.ids };
-  });
-
-  navigate('/results', 1);
-}
-
-function handleVote(itemId, dir) {
-  const voting = { ...state.voting };
-  if (!voting[itemId]) voting[itemId] = { vote: 0, notVote: 0, offense: 0, type: 'deletion', pendingUntil: null };
-  const r = voting[itemId];
-
-  if (r.userVote === dir) dir = null;
-  else if (r.userVote === 'agree' && dir === 'disagree') {
-    r.vote = Math.max(0, (r.vote || 0) - 1);
-    r.notVote = (r.notVote || 0) + 1;
-    r.userVote = 'disagree';
-  } else if (r.userVote === 'disagree' && dir === 'agree') {
-    r.notVote = Math.max(0, (r.notVote || 0) - 1);
-    r.vote = (r.vote || 0) + 1;
-    r.userVote = 'agree';
-  } else if (dir === 'agree') { r.vote = (r.vote || 0) + 1; r.userVote = 'agree'; }
-  else if (dir === 'disagree') { r.notVote = (r.notVote || 0) + 1; r.userVote = 'disagree'; }
-
-  if (r.type === 'tag') {
-    if (r.vote > r.notVote) {
-      state.uploads = state.uploads.map(u => {
-        if (u.id === itemId && r.suggestedTag && !u.tags.includes(r.suggestedTag)) return { ...u, tags: [...u.tags, r.suggestedTag] };
+    ownerTag(itemId) {
+      const tag = prompt('Enter a tag to add:');
+      if (!tag || !tag.trim()) { this.openMenuUid = null; this.kebabPos = null; return; }
+      this.uploads = this.uploads.map(u => {
+        if (u.id === itemId && !u.tags.includes(tag.trim())) return { ...u, tags: [...u.tags, tag.trim()] };
         return u;
       });
-      persist('uploads');
-    }
-  } else {
-    r.pendingUntil = r.vote > r.notVote ? Date.now() + getPendingDuration(state.offenses[itemId] || 0) : null;
-  }
+      this.openMenuUid = null; this.kebabPos = null;
+      this.persist('uploads');
+      this.processGovernance();
+    },
 
-  state.voting = voting;
-  persist('voting');
-  render();
-}
-
-function openAppealModal(id) { state.appealModalId = id; state.openMenuId = null; render(); }
-
-function submitAppeal(type) {
-  const id = state.appealModalId;
-  if (!id) return;
-
-  let suggestedTag = null;
-  if (type === 'tag') {
-    suggestedTag = prompt('Enter suggested tag:');
-    if (!suggestedTag || !suggestedTag.trim()) { state.appealModalId = null; render(); return; }
-  }
-
-  const voting = { ...state.voting };
-  if (!voting[id]) voting[id] = { vote: 0, notVote: 0, offense: 0, userVote: null, type };
-  voting[id].appealTimestamp = Date.now();
-  voting[id].type = type;
-  if (suggestedTag) voting[id].suggestedTag = suggestedTag.trim();
-
-  state.voting = voting;
-  state.appealModalId = null;
-  persist('voting');
-  render();
-}
-
-function handleInstantDelete(itemId) {
-  const password = prompt('Enter password to instantly delete this item:');
-  if (!password || !password.trim()) { alert('Delete canceled. Password is required.'); return; }
-  const upload = state.uploads.find(u => u.id === itemId);
-  if (upload && password !== upload.submitterId + ':' + upload.id.slice(0, 6)) {
-    alert('Incorrect password. Delete canceled.');
-    return;
-  }
-  state.uploads = state.uploads.filter(u => u.id !== itemId);
-  state.recentlyViewed = state.recentlyViewed.filter(v => v.itemId !== itemId);
-  state.openMenuId = null;
-  state.passwordInput = '';
-  persist('uploads');
-  persist('recentlyViewed');
-  render();
-}
-
-function handleReportDeletion(itemId) {
-  const voting = { ...state.voting };
-  if (!voting[itemId]) voting[itemId] = { vote: 0, notVote: 0, offense: 0, userVote: null, type: 'deletion', appealTimestamp: Date.now(), pendingUntil: null };
-  else {
-    voting[itemId].appealTimestamp = Date.now();
-    voting[itemId].type = 'deletion';
-  }
-  state.voting = voting;
-  state.openMenuId = null;
-  persist('voting');
-  render();
-}
-
-function handleOwnerTag(itemId) {
-  const tag = prompt('Enter a tag to add:');
-  if (!tag || !tag.trim()) { state.openMenuId = null; render(); return; }
-  state.uploads = state.uploads.map(u => {
-    if (u.id === itemId && !u.tags.includes(tag.trim())) return { ...u, tags: [...u.tags, tag.trim()] };
-    return u;
-  });
-  state.openMenuId = null;
-  persist('uploads');
-  render();
-}
-
-// ── Component Builders ──
-const VISIBLE_LIMIT = 5;
-const SCREENSHOT_API = 'https://pageshot.site/v1/screenshot';
-
-function isImageUrl(url) {
-  return /\.(png|jpg|jpeg|gif|svg|webp|bmp|ico)(\?|#|$)/i.test(url);
-}
-
-function screenshotUrl(url) {
-  return SCREENSHOT_API + '?url=' + encodeURIComponent(url);
-}
-
-function buildKebab(id) {
-  const upload = state.uploads.find(u => u.id === id);
-  const isOwner = upload && upload.deviceId === currentDeviceId;
-  const v = state.voting[id];
-  const wrap = el('span', { className: 'kebab-wrap' },
-    el('button', { className: 'kebab-btn', dataset: { action: 'kebab-toggle', id } }, '\u22EE'),
-  );
-
-  if (state.openMenuId === id) {
-    const menu = el('div', { className: 'kebab-menu' });
-    if (v && v.pendingUntil) {
-      const h = Math.round(getPendingDuration(state.offenses[id] || 0) / 3600000);
-      menu.appendChild(el('div', { style: { padding: '6px 10px', fontSize: 12, color: '#800000', borderBottom: '1px solid #C0C0C0' } },
-        'Deletion: ' + timeRemaining(v.pendingUntil) + ' (interval ' + h + 'h)',
-      ));
-    }
-    menu.appendChild(el('button', { dataset: { action: 'report-del', id } }, '\uD83D\uDCA5 Report Deletion'));
-    menu.appendChild(el('button', { dataset: { action: 'instant-delete', id } }, '\uD83D\uDD11 Delete (Instant)'));
-    if (isOwner) menu.appendChild(el('button', { dataset: { action: 'owner-tag', id } }, 'Modification'));
-    wrap.appendChild(menu);
-  }
-  return wrap;
-}
-
-function buildPreview(id, url) {
-  if (!state.activeIframes[id]) return el('div', { className: 'item-iframe', style: { display: 'none' } });
-  const img = isImageUrl(url);
-  return el('img', {
-    className: 'item-iframe',
-    src: img ? url : screenshotUrl(url),
-    style: { objectFit: img ? 'contain' : 'cover', background: img ? '#FFF' : '#EEE', display: 'block' },
-  });
-}
-
-function buildAutoPreview(url) {
-  const img = isImageUrl(url);
-  return el('img', {
-    className: 'item-iframe',
-    src: img ? url : screenshotUrl(url),
-    style: { objectFit: img ? 'contain' : 'cover', background: '#EEE', display: 'block' },
-  });
-}
-
-function renderList(items, fn, sectionKey) {
-  if (!items.length) return el('div', { className: 'empty-state' }, el('p', null, 'Nothing here yet.'));
-  const showAll = sectionKey && state.expandedSections[sectionKey];
-  const visible = showAll ? items : items.slice(0, VISIBLE_LIMIT);
-  const container = el('div', { className: 'card-scroll' });
-  visible.forEach(i => { const r = fn(i); if (r) container.appendChild(r); });
-  if (sectionKey && items.length > VISIBLE_LIMIT && !showAll) {
-    container.appendChild(el('button', {
-      className: 'tag-btn', style: { marginTop: 8, width: '100%', textAlign: 'center' },
-      dataset: { action: 'show-more', section: sectionKey },
-    }, 'Show more (' + (items.length - VISIBLE_LIMIT) + ' remaining)'));
-  }
-  return container;
-}
-
-function section(title, count, content) {
-  return el('div', { className: 'card' },
-    el('div', { className: 'card-header' },
-      el('span', { className: 'card-title' }, title),
-      el('span', { className: 'card-count' }, count + ' item' + (count > 1 ? 's' : '')),
-    ),
-    content,
-  );
-}
-
-// ── Main Render ──
-let renderCount = 0;
-
-function render() {
-  renderCount++;
-  const now = Date.now();
-
-  // Governance
-  for (const id in state.voting) {
-    const r = state.voting[id];
-    if (r.type !== 'tag' && r.pendingUntil && now >= r.pendingUntil && r.vote > r.notVote) {
-      r.pendingUntil = null;
-      const count = (state.offenses[id] || 0) + 1;
-      state.offenses = { ...state.offenses, [id]: count };
-      persist('offenses');
-      if (count >= 2) {
-        state.uploads = state.uploads.filter(u => u.id !== id);
-        state.recentlyViewed = state.recentlyViewed.filter(v => v.itemId !== id);
-        persist('uploads');
-        persist('recentlyViewed');
+    submitAppeal(type) {
+      const id = this.appealModalId;
+      if (!id) return;
+      if (type === 'tag') {
+        const item = this.uploads.find(u => u.id === id);
+        const currentTags = item?.tags?.length ? 'Existing tags: ' + item.tags.join(', ') : '';
+        const addInput = prompt('Enter tags to add or prefix with - to remove (comma-separated):\n' + currentTags);
+        const addTags = [];
+        const removeTags = [];
+        (addInput || '').split(',').map(t => t.trim()).filter(Boolean).forEach(t => {
+          if (t[0] === '-') removeTags.push(t.slice(1));
+          else addTags.push(t);
+        });
+        if (!addTags.length && !removeTags.length) { this.appealModalId = null; return; }
+        this.uploads = this.uploads.map(u => {
+          if (u.id !== id) return u;
+          let tags = [...u.tags];
+          removeTags.forEach(t => { tags = tags.filter(x => x !== t); });
+          addTags.forEach(t => { if (!tags.includes(t)) tags.push(t); });
+          return { ...u, tags };
+        });
+        this.persist('uploads');
+      } else {
+        const voting = { ...this.voting };
+        if (!voting[id]) voting[id] = { vote: 0, notVote: 0, offense: 0, userVote: null, type };
+        voting[id].appealTimestamp = Date.now();
+        voting[id].type = type;
+        this.voting = voting;
       }
-    }
-  }
-  persist('voting');
+      this.appealModalId = null;
+      this.persist('voting');
+      this.processGovernance();
+    },
 
-  // Clean orphaned views
-  const valid = {};
-  state.uploads.forEach(u => valid[u.id] = true);
-  state.recentlyViewed = state.recentlyViewed.filter(e => valid[e.itemId]);
+    toggleKebab(id, event, source) {
+      const key = source + '|' + id;
+      this.openMenuUid = this.openMenuUid === key ? null : key;
+      if (this.openMenuUid && event) {
+        const rect = event.target.getBoundingClientRect();
+        this.kebabPos = { left: rect.left + 'px', top: (rect.bottom + 2) + 'px' };
+      } else {
+        this.kebabPos = null;
+      }
+    },
+    closeKebab(source) {
+      if (this.openMenuUid && this.openMenuUid.startsWith(source + '|')) { this.openMenuUid = null; this.kebabPos = null; }
+    },
 
-  const todayViewed = state.recentlyViewed.filter(x => isToday(x.timestamp));
-  const appealedItems = state.uploads.filter(u => isAppealed(u.id));
-  const showingSearch = state.searchResults !== null;
+    openTagContext(itemId, tag, event) {
+      event.preventDefault();
+      this.contextTarget = { itemId, tag };
+      const rect = event.target.getBoundingClientRect();
+      this.tagMenuPos = { left: rect.left + 'px', top: (rect.bottom + 2) + 'px' };
+    },
+    closeTagContext() {
+      this.contextTarget = null;
+      this.tagMenuPos = null;
+    },
+    removeTagFromContext() {
+      if (!this.contextTarget) return;
+      const { itemId, tag } = this.contextTarget;
+      this.uploads = this.uploads.map(u => {
+        if (u.id === itemId) return { ...u, tags: u.tags.filter(t => t !== tag) };
+        return u;
+      });
+      this.closeTagContext();
+      this.persist('uploads');
+    },
+    startTagLongPress(itemId, tag, event) {
+      this.contextTarget = { itemId, tag };
+      const touch = event.touches ? event.touches[0] : event;
+      this.tagLongPressTimer = setTimeout(() => {
+        this.longPressFired = true;
+        this.tagMenuPos = { left: touch.clientX + 'px', top: (touch.clientY + 2) + 'px' };
+        this.tagLongPressTimer = null;
+      }, 500);
+    },
+    endTagLongPress() {
+      if (this.tagLongPressTimer) {
+        clearTimeout(this.tagLongPressTimer);
+        this.tagLongPressTimer = null;
+        this.contextTarget = null;
+      }
+    },
+    cancelTagLongPress() {
+      if (this.tagLongPressTimer) {
+        clearTimeout(this.tagLongPressTimer);
+        this.tagLongPressTimer = null;
+      }
+      this.contextTarget = null;
+      this.longPressFired = false;
+    },
+    handleTagClick(tag, itemId) {
+      if (this.longPressFired) { this.longPressFired = false; return; }
+      this.searchTag(tag);
+    },
+    handleSearchTagClick(tag) {
+      if (this.longPressFired) { this.longPressFired = false; return; }
+      this.searchTag(tag);
+    },
 
-  const root = document.getElementById('root');
-  if (!root) return;
-  const parts = [];
+    goToPage(p) { this.resultsPage = p; this.navigate('/results', p); },
 
-  // Header
-  parts.push(el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 } },
-    el('span', { style: { fontSize: 24, fontWeight: 'bold', color: '#000080' } }, showingSearch ? 'Search Results' : 'Weblist'),
-    showingSearch ? el('button', { id: 'clear-search', className: 'btn-submit', style: { marginTop: 0 } }, '\u2716 Clear') : null,
-  ));
+    navigate(base, page) {
+      location.hash = page && page > 1 ? base + '/' + page : base;
+    },
+    handleRoute() {
+      const raw = location.hash.slice(1) || '/';
+      const segs = raw.split('/');
+      const base = segs[1] || '';
+      if (base === 'results') {
+        this.page = 'results';
+        this.resultsPage = parseInt(segs[2], 10) || 1;
+        if (!this.searchResults && this.search.trim()) this.doSearch();
+      } else if (base === 'watch') {
+        this.page = 'watch';
+        this.watchId = segs[2] || null;
+        if (this.watchId) {
+          const views = { ...this.watchViews };
+          views[this.watchId] = (views[this.watchId] || 0) + 1;
+          this.watchViews = views;
+          this.safeSet('watchViews', views);
+          const item = this.watchItem;
+          if (item) {
+            const today = this.recentlyViewed.filter(x => this.isToday(x.timestamp) && x.url !== item.url);
+            today.unshift({ tag: 'clicked', itemId: this.watchId, url: item.url, timestamp: Date.now() });
+            this.recentlyViewed = today;
+            this.persist('recentlyViewed');
+          }
+        }
+        this.watchPlaying = false;
+        this.watchMuted = false;
+        this.watchLooped = false;
+        this.watchCurrentTime = 0;
+        this.watchDuration = 0;
+        this.watchProgress = 0;
+        if (this.watchId && this.watchItem) {
+          this.fetchWatchPageData(this.watchItem.url);
+        }
+      } else if (['uploads', 'activity', 'viewed', 'video', 'video-uploads', 'video-activity', 'video-viewed'].includes(base)) {
+        this.page = base;
+        this.searchResults = null;
+      } else {
+        this.page = '';
+        this.searchResults = null;
+      }
+      this.processGovernance();
+      this.videoGovernance();
+    },
 
-  // Search bar
-  parts.push(el('div', { className: 'search-box' },
-    el('input', { id: 'search-input', placeholder: 'Search activities...', value: state.search }),
-    el('button', { id: 'search-btn' }, '\uD83D\uDD0D Search'),
-  ));
+    processGovernance() {
+      const now = Date.now();
+      for (const id in this.voting) {
+        const r = this.voting[id];
+        if (r.type !== 'tag' && r.pendingUntil && now >= r.pendingUntil && r.vote > r.notVote) {
+          r.pendingUntil = null;
+          this.uploads = this.uploads.filter(u => u.id !== id);
+          this.recentlyViewed = this.recentlyViewed.filter(v => v.itemId !== id);
+          this.persist('uploads');
+          this.persist('recentlyViewed');
+        }
+      }
+      this.persist('voting');
+      this.cleanOrphans();
+    },
+    cleanOrphans() {
+      const valid = {};
+      this.uploads.forEach(u => valid[u.id] = true);
+      this.recentlyViewed = this.recentlyViewed.filter(e => valid[e.itemId]);
+    },
 
-  if (showingSearch) {
-    // Related tags
-    const seed = [];
-    const relTags = [];
-    state.searchResults.forEach(r => (r.tags || []).forEach(t => { if (!seed.includes(t) && !relTags.includes(t)) { seed.push(t); relTags.push(t); } }));
-    state.uploads.forEach(u => { if (u.tags.some(t => seed.includes(t))) u.tags.forEach(t => { if (!relTags.includes(t)) relTags.push(t); }); });
+    getVideoInfo(url) {
+      const m = (p) => { const r = url.match(p); return r ? r[1] : null; };
+      let id;
+      id = m(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]+)/);
+      if (id) return { type: 'youtube', videoId: id, embedUrl: 'https://www.youtube.com/embed/' + id, thumbnailUrl: 'https://img.youtube.com/vi/' + id + '/mqdefault.jpg' };
+      id = m(/vimeo\.com\/(\d+)/);
+      if (id) return { type: 'vimeo', videoId: id, embedUrl: 'https://player.vimeo.com/video/' + id, thumbnailUrl: null };
+      id = m(/dailymotion\.com\/video\/([a-zA-Z0-9]+)/) || m(/dai\.ly\/([a-zA-Z0-9]+)/);
+      if (id) return { type: 'dailymotion', videoId: id, embedUrl: 'https://www.dailymotion.com/embed/video/' + id, thumbnailUrl: 'https://www.dailymotion.com/thumbnail/video/' + id };
+      id = m(/twitch\.tv\/videos\/(\d+)/);
+      if (id) return { type: 'twitch', videoId: id, embedUrl: 'https://player.twitch.tv/?video=' + id, thumbnailUrl: null };
+      id = m(/twitch\.tv\/([a-zA-Z0-9_]+)(?:\/|$)/);
+      if (id) return { type: 'twitch', videoId: id, embedUrl: 'https://player.twitch.tv/?channel=' + id, thumbnailUrl: null };
+      id = m(/facebook\.com\/watch\/?\?v=(\d+)/) || m(/fb\.watch\/([a-zA-Z0-9_-]+)/);
+      if (id) return { type: 'facebook', videoId: id, embedUrl: 'https://www.facebook.com/plugins/video.php?href=' + encodeURIComponent(url), thumbnailUrl: null };
+      id = m(/tiktok\.com\/@[\w.-]+\/video\/(\d+)/);
+      if (id) return { type: 'tiktok', videoId: id, embedUrl: 'https://www.tiktok.com/embed/v2/' + id, thumbnailUrl: null };
+      id = m(/instagram\.com\/(?:p|reel)\/([a-zA-Z0-9_-]+)/);
+      if (id) return { type: 'instagram', videoId: id, embedUrl: 'https://www.instagram.com/p/' + id + '/embed/', thumbnailUrl: null };
+      id = m(/bilibili\.com\/video\/(BV[a-zA-Z0-9]+)/);
+      if (id) return { type: 'bilibili', videoId: id, embedUrl: 'https://player.bilibili.com/player.html?bvid=' + id, thumbnailUrl: null };
+      id = m(/vk\.com\/video(-?\d+_\d+)/);
+      if (id) return { type: 'vk', videoId: id, embedUrl: 'https://vk.com/video_ext.php?' + id.replace('_', '&id=').replace(/^(-?\d+)/, 'oid=$1'), thumbnailUrl: null };
+      id = m(/rumble\.com\/v([a-zA-Z0-9_]+)/);
+      if (id) return { type: 'rumble', videoId: id, embedUrl: 'https://rumble.com/embed/' + id, thumbnailUrl: null };
+      if (url.match(/\.(mp4|webm|ogg)(\?|#|$)/i)) return { type: 'file', videoId: null, embedUrl: url, thumbnailUrl: null };
+      if (url.match(/^https?:\/\/(localhost|127\.0\.0\.1)/i)) return { type: 'file', videoId: null, embedUrl: url, thumbnailUrl: null };
+      return { type: null, videoId: null, embedUrl: null, thumbnailUrl: null };
+    },
+    isVideoUrl(url) {
+      return this.getVideoInfo(url).type !== null;
+    },
+    getVideoEmbedUrl(url) {
+      return this.getVideoInfo(url).embedUrl;
+    },
+    captureVideoFrame(url) {
+      const video = document.createElement('video');
+      video.crossOrigin = 'anonymous';
+      video.preload = 'metadata';
+      video.muted = true;
+      video.src = url;
+      const timeout = setTimeout(() => {
+        video.remove();
+        this.videoFrameLoading = { ...this.videoFrameLoading, [url]: false };
+        this.videoFrameCache = { ...this.videoFrameCache, [url]: null };
+      }, 10000);
+      const cleanup = () => { clearTimeout(timeout); video.remove(); };
+      video.addEventListener('loadedmetadata', () => {
+        video.currentTime = Math.min(1, video.duration * 0.1);
+      });
+      video.addEventListener('seeked', () => {
+        try {
+          const canvas = document.createElement('canvas');
+          const w = video.videoWidth || 320, h = video.videoHeight || 240;
+          canvas.width = Math.min(w, 320);
+          canvas.height = Math.round(canvas.width * (h / w));
+          canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+          this.videoFrameCache = { ...this.videoFrameCache, [url]: canvas.toDataURL('image/jpeg', 0.6) };
+        } catch {
+          this.videoFrameCache = { ...this.videoFrameCache, [url]: null };
+        }
+        this.videoFrameLoading = { ...this.videoFrameLoading, [url]: false };
+        cleanup();
+      });
+      video.addEventListener('error', () => {
+        this.videoFrameCache = { ...this.videoFrameCache, [url]: null };
+        this.videoFrameLoading = { ...this.videoFrameLoading, [url]: false };
+        cleanup();
+      });
+      video.load();
+    },
+    getVideoFrame(url) {
+      const info = this.getVideoInfo(url);
+      if (info.thumbnailUrl) return info.thumbnailUrl;
+      if (info.type === 'file') {
+        if (!this.videoFrameCache[url] && !this.videoFrameLoading[url]) {
+          this.videoFrameLoading = { ...this.videoFrameLoading, [url]: true };
+          setTimeout(() => this.captureVideoFrame(url), 50);
+        }
+        return this.videoFrameCache[url] || null;
+      }
+      return null;
+    },
+    getEmbedCode(url) {
+      const info = this.getVideoInfo(url);
+      if (!info.type) return '';
+      if (info.type === 'file') return '<video controls width="560"><source src="' + url + '"></video>';
+      return '<iframe src="' + info.embedUrl + '" width="560" height="315" frameborder="0" allowfullscreen></iframe>';
+    },
+    copyEmbed(url) {
+      const code = this.getEmbedCode(url);
+      if (!code) return;
+      navigator.clipboard.writeText(code).then(() => {
+        alert('Embed code copied!');
+      }).catch(() => {
+        alert('Failed to copy. Select and copy manually:\n\n' + code);
+      });
+    },
 
-    if (relTags.length) {
-      const frag = document.createDocumentFragment();
-      relTags.forEach(t => frag.appendChild(el('button', { className: 'tag-btn', dataset: { action: 'tag-search', tag: t } }, t)));
-      parts.push(section('Related Tags', relTags.length, el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 4 } }, frag)));
-    }
+    get watchItem() {
+      if (!this.watchId) return null;
+      return this.uploads.find(u => u.id === this.watchId) || this.videos.find(v => v.id === this.watchId) || null;
+    },
+    get watchVideoInfo() {
+      if (!this.watchItem) return null;
+      return this.getVideoInfo(this.watchItem.url);
+    },
+    get watchViewCount() {
+      return this.watchViews[this.watchId] || 0;
+    },
+    get watchBufferedPercent() {
+      const el = this.$refs?.watchVideo;
+      if (!el || !el.buffered || !el.buffered.length || !el.duration) return 0;
+      return (el.buffered.end(el.buffered.length - 1) / el.duration) * 100;
+    },
+    get watchEmbedUrl() {
+      if (!this.watchItem) return '';
+      const info = this.getVideoInfo(this.watchItem.url);
+      if (!info || !info.embedUrl) return '';
+      let url = info.embedUrl;
+      const sep = url.includes('?') ? '&' : '?';
+      const params = [];
+      if (this.watchMuted) {
+        if (info.type === 'youtube' || info.type === 'dailymotion') params.push('mute=1');
+        else if (info.type === 'vimeo') params.push('muted=1');
+      }
+      if (this.watchLooped) {
+        if (info.type === 'youtube') { params.push('loop=1'); params.push('playlist=' + info.videoId); }
+        else if (info.type === 'vimeo') params.push('loop=1');
+      }
+      if (params.length) url += sep + params.join('&');
+      return url;
+    },
 
-    // Results
-    const total = state.searchResults.length;
-    const pages = Math.ceil(total / RESULTS_PER_PAGE) || 1;
-    const cur = Math.min(state.resultsPage, pages);
-    const start = (cur - 1) * RESULTS_PER_PAGE;
-    const pageItems = state.searchResults.slice(start, start + RESULTS_PER_PAGE);
+    openWatch(id, url) {
+      this.cleanupWatchVideo();
+      this.watchId = id;
+      this.watchPlaying = false;
+      this.watchMuted = false;
+      this.watchLooped = false;
+      this.watchCurrentTime = 0;
+      this.watchDuration = 0;
+      this.watchProgress = 0;
+      this.watchVideoSrc = null;
+      this.watchVideoLoading = true;
+      this.watchFetchInfo = null;
+      this.watchProgressBytes = { loaded: 0, total: 0, percent: 0 };
+      this.navigate('/watch/' + id);
+    },
+    watchTogglePlay() {
+      const el = this.$refs.watchVideo;
+      if (!el) return;
+      if (el.paused) { el.play(); this.watchPlaying = true; }
+      else { el.pause(); this.watchPlaying = false; }
+    },
+    watchToggleMute() {
+      this.watchMuted = !this.watchMuted;
+      const el = this.$refs.watchVideo;
+      if (el) el.muted = this.watchMuted;
+    },
+    watchToggleLoop() {
+      this.watchLooped = !this.watchLooped;
+      const el = this.$refs.watchVideo;
+      if (el) el.loop = this.watchLooped;
+    },
+    watchSeek(event) {
+      const el = this.$refs.watchVideo;
+      if (!el || !el.duration) return;
+      const rect = event.currentTarget.getBoundingClientRect();
+      el.currentTime = ((event.clientX - rect.left) / rect.width) * el.duration;
+    },
+    cleanupWatchVideo() {
+      if (this._plyr) { try { this._plyr.destroy(); } catch (e) { /* ignore */ } this._plyr = null; }
+      if (this._watchAbort) { this._watchAbort.abort(); this._watchAbort = null; }
+      if (this._watchSB) {
+        try { if (this._watchMS && this._watchMS.readyState === 'open') this._watchMS.removeSourceBuffer(this._watchSB); } catch (e) { /* ignore */ }
+        this._watchSB = null;
+      }
+      if (this._watchMS) {
+        try { if (this._watchMS.readyState === 'open') this._watchMS.endOfStream(); } catch (e) { /* ignore */ }
+        this._watchMS = null;
+      }
+      if (this.watchVideoSrc) {
+        URL.revokeObjectURL(this.watchVideoSrc);
+        this.watchVideoSrc = '';
+      }
+      this.watchVideoLoading = false;
+    },
+    setWatchVolume(val) {
+      this.watchVolume = parseFloat(val);
+      const el = this.$refs.watchVideo;
+      if (el) { el.volume = this.watchVolume; el.muted = false; this.watchMuted = false; }
+    },
+    enterWatchFullscreen() {
+      const el = this.$refs.watchVideo;
+      if (!el) return;
+      if (el.requestFullscreen) el.requestFullscreen();
+      else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+      else if (el.msRequestFullscreen) el.msRequestFullscreen();
+    },
+    initPlyr() {
+      if (this._plyr) { this._plyr.destroy(); this._plyr = null; }
+      if (typeof Plyr === 'undefined') return;
+      const el = this.$refs.watchVideo;
+      if (!el || !el.src) return;
+      try {
+        this._plyr = new Plyr(el, {
+          controls: ['play-large', 'play', 'progress', 'current-time', 'duration', 'mute', 'volume', 'fullscreen'],
+          keyboard: { focused: true, global: true },
+          tooltips: { controls: true, seek: true },
+          invertTime: false,
+          resetOnEnd: true
+        });
+      } catch (e) { /* plyr init failed, fallback to native controls */ }
+    },
+    watchSyncState() {
+      const el = this.$refs.watchVideo;
+      if (!el) return;
+      this.watchCurrentTime = el.currentTime;
+      this.watchDuration = el.duration || 0;
+      this.watchProgress = el.duration ? (el.currentTime / el.duration) * 100 : 0;
+      this.watchPlaying = !el.paused;
+    },
+    formatTime(seconds) {
+      if (!seconds || isNaN(seconds)) return '00:00';
+      const m = Math.floor(seconds / 60);
+      const s = Math.floor(seconds % 60);
+      return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+    },
+    formatBytes(bytes) {
+      if (!bytes || bytes === 0) return '0 B';
+      const units = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+      return (bytes / Math.pow(1024, i)).toFixed(i > 0 ? 1 : 0) + ' ' + units[i];
+    },
+    getRelatedVideos() {
+      if (!this.watchItem) return [];
+      const tags = (this.watchItem.tags || []).map(t => t.toLowerCase());
+      const candidates = [...this.uploads, ...this.videos];
+      const seen = new Set();
+      const result = [];
+      for (const item of candidates) {
+        if (item.id === this.watchId || seen.has(item.id)) continue;
+        const itemTags = (item.tags || []).map(t => t.toLowerCase());
+        const overlap = itemTags.filter(t => tags.includes(t));
+        if (overlap.length > 0) {
+          seen.add(item.id);
+          result.push({ ...item, matchCount: overlap.length });
+        }
+      }
+      result.sort((a, b) => b.matchCount - a.matchCount);
+      return result.slice(0, 10);
+    },
+    getWatchComments() {
+      if (!this.watchItem) return [];
+      const item = this.watchItem;
+      const c = [];
+      const info = this.getVideoInfo(item.url);
+      c.push({ label: 'Owner', value: item.submitterId || 'anonymous' });
+      c.push({ label: 'Tags', value: (item.tags || []).join(', ') || '(none)' });
+      c.push({ label: 'Views', value: String(this.watchViewCount) });
+      c.push({ label: 'Added', value: this.relativeTime(item.timestamp) });
+      if (info.type) c.push({ label: 'Source', value: info.type });
+      return c;
+    },
+    fetchWatchPageData(url) {
+      this.watchFetchedData = null;
+      this.watchFetchLoading = true;
+      const proxy = 'https://api.allorigins.win/raw?url=';
+      fetch(proxy + encodeURIComponent(url))
+        .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+        .then(html => {
+          const d = document.createElement('div');
+          d.innerHTML = html;
+          const title = d.querySelector('title')?.textContent?.trim()
+            || d.querySelector('meta[property="og:title"]')?.getAttribute('content')?.trim()
+            || this.getUrlTitle(url);
+          const desc = d.querySelector('meta[name="description"]')?.getAttribute('content')?.trim()
+            || d.querySelector('meta[property="og:description"]')?.getAttribute('content')?.trim()
+            || '';
+          const image = d.querySelector('meta[property="og:image"]')?.getAttribute('content')?.trim() || '';
+          this.watchFetchedData = { title, desc, image, url };
+          this.watchFetchLoading = false;
+        })
+        .catch(() => {
+          this.watchFetchedData = { title: this.getUrlTitle(url), desc: '', image: '', url };
+          this.watchFetchLoading = false;
+        });
+    },
+    async fetchWatchVideo() {
+      if (!this.watchItem) { this.watchVideoLoading = false; return; }
+      const url = this.watchItem.url;
+      const info = this.getVideoInfo(url);
+      if (!info || info.type !== 'file') { this.watchVideoLoading = false; return; }
+      this.cleanupWatchVideo();
+      this.watchVideoLoading = true;
+      this.watchVideoSrc = null;
+      this.watchFetchInfo = null;
+      this.watchProgressBytes = { loaded: 0, total: 0, percent: 0 };
 
-    parts.push(section('Search Results ' + cur + '/' + pages, total,
-      renderList(pageItems, item => el('div', { className: 'item-row' },
-        el('div', null, el('span', { className: 'url-link', dataset: { action: 'url-click', id: item.id } }, item.url)),
-        el('div', { className: 'item-meta' },
-          relativeTime(item.timestamp),
-          item._groupIds && item._groupIds.length > 1 ? ' (merged from ' + item._groupIds.length + ' entries)' : '',
-        ),
-        el('div', { style: { marginTop: 6, display: 'flex', alignItems: 'center', flexWrap: 'wrap' } },
-          (() => { const f = document.createDocumentFragment(); (item.tags || []).forEach(t => f.appendChild(el('button', { className: 'tag-btn', dataset: { action: 'tag-search', tag: t } }, t))); f.appendChild(buildKebab(item.id)); return f; })(),
-        ),
-        buildAutoPreview(item.url),
-      )),
-    ));
+      try {
+        const controller = new AbortController();
+        this._watchAbort = controller;
+        const response = await fetch(url, { signal: controller.signal });
+        if (!response.ok) { this.watchVideoSrc = url; this.watchVideoLoading = false; throw new Error('HTTP ' + response.status); }
 
-    if (pages > 1) {
-      const nav = el('div', { style: { display: 'flex', justifyContent: 'center', gap: 6, marginTop: 12 } });
-      for (let p = 1; p <= pages; p++) nav.appendChild(el('button', { className: 'tag-btn', style: p === cur ? { background: '#000080', color: '#FFF', borderColor: '#000080' } : {}, dataset: { action: 'go-page', page: p } }, '' + p));
-      parts.push(nav);
-    }
-  } else {
-    // Submit form
-    parts.push(el('div', { className: 'card' },
-      el('div', { className: 'card-header', style: { borderBottom: 'none', paddingBottom: 0, marginBottom: 16 } },
-        el('span', { className: 'card-title' }, '\uD83D\uDD17 Submit New Link'),
-      ),
-      el('div', { className: 'form-grid' },
-        el('div', { className: 'form-group' }, el('label', null, 'URL *'), el('input', { id: 'url-input', placeholder: 'https://example.com', value: state.urlInput })),
-        el('div', { className: 'form-group' },
-          el('label', null, 'Tag'),
-          el('input', { id: 'tag-input', placeholder: 'e.g., tutorial, news', value: state.tagInput }),
-          el('div', { style: { fontSize: 12, color: '#808080', marginTop: 4 } }, 'Tags can only be modified through tag suggestion appeals'),
-        ),
-        el('div', { className: 'form-group', style: { minWidth: 160, flex: '0 1 auto' } }, el('label', null, 'Your name'), el('input', { id: 'submitter-input', placeholder: '(optional)', value: state.submitterInput })),
-        el('div', { className: 'form-group', style: { minWidth: 160, flex: '0 1 auto' } }, el('label', null, 'Password'), el('input', { id: 'password-input', type: 'password', placeholder: 'optional; delete asks for password', value: state.passwordInput })),
-      ),
-      el('button', { id: 'submit-btn', className: 'btn-submit' }, '\u2728 Analyze & Submit'),
-    ));
+        const ct = response.headers.get('content-type') || '';
+        const cl = response.headers.get('content-length');
+        const total = cl ? parseInt(cl) : 0;
+        this.watchFetchInfo = {
+          status: response.status + ' ' + response.statusText,
+          contentType: ct || 'video/mp4',
+          contentLength: cl || 'unknown',
+          corsOrigin: response.headers.get('access-control-allow-origin') || 'none',
+          acceptRanges: response.headers.get('accept-ranges') || 'unknown'
+        };
 
-    // Activity
-    parts.push(section('Recent Activity', appealedItems.length,
-      renderList(appealedItems, item => {
-        const v = getVote(item.id);
-        return el('div', { className: 'item-row' },
-          el('div', null, el('span', { className: 'url-link', dataset: { action: 'url-click', id: item.id } }, item.url)),
-          el('div', { className: 'item-meta' },
-            'Appealed ' + (v.appealTimestamp ? relativeTime(v.appealTimestamp) : 'recently') +
-            ' \u2022 ' + (v.type === 'tag' ? 'Tag suggestion' : 'Deletion') +
-            (v.suggestedTag ? ' \u2192 "' + v.suggestedTag + '"' : ''),
-          ),
-          el('div', { style: { marginTop: 8, display: 'flex', alignItems: 'center' } },
-            el('button', { className: 'vote-btn' + (v.userVote === 'agree' ? ' vote-btn-active' : ''), dataset: { action: 'vote', id: item.id, dir: 'agree' } }, 'Agree (\u2191)' + (v.userVote === 'agree' ? ' \u2713' : '')),
-            el('span', { className: 'vote-count' }, (v.vote || 0) + ' / ' + (v.notVote || 0)),
-            el('button', { className: 'vote-btn' + (v.userVote === 'disagree' ? ' vote-btn-active' : ''), dataset: { action: 'vote', id: item.id, dir: 'disagree' } }, 'Disagree (\u2193)' + (v.userVote === 'disagree' ? ' \u2713' : '')),
-            buildKebab(item.id),
-          ),
-          buildPreview(item.id, item.url),
-          v.type === 'tag' && v.suggestedTag && v.vote > v.notVote
-            ? el('div', { style: { marginTop: 4 } }, el('span', { className: 'approved-tag' }, 'Tag "' + v.suggestedTag + '" approved'))
-            : null,
-        );
-      }, 'activity'),
-    ));
+        const MS = window.MediaSource || window.WebKitMediaSource;
+        const hasStream = !!(response.body && response.body.getReader);
 
-    // Uploads
-    parts.push(section('Recent Uploads', state.uploads.length,
-      renderList(state.uploads, item => {
-        const vr = state.voting[item.id];
-        const pending = vr && vr.pendingUntil;
-        return el('div', { className: 'item-row' },
-          el('div', null, el('span', { className: 'url-link', dataset: { action: 'url-click', id: item.id } }, item.url)),
-          el('div', { className: 'item-meta' },
-            relativeTime(item.timestamp) +
-            (item.submitterId !== 'anonymous' ? ' by ' + item.submitterId : '') +
-            (pending ? ' \u2022 ' + timeRemaining(pending) : ''),
-          ),
-          el('div', { style: { marginTop: 6, display: 'flex', alignItems: 'center', flexWrap: 'wrap' } },
-            (() => { const f = document.createDocumentFragment(); item.tags.forEach(t => f.appendChild(el('button', { className: 'tag-btn', dataset: { action: 'tag-click', tag: t, id: item.id } }, t))); f.appendChild(buildKebab(item.id)); return f; })(),
-          ),
-          buildPreview(item.id, item.url),
-        );
-      }, 'uploads'),
-    ));
+        if (MS && hasStream) {
+          await this._streamWatchVideo(response, ct || 'video/mp4', total);
+        } else {
+          const blob = await response.blob();
+          this.watchVideoSrc = URL.createObjectURL(blob);
+          this.watchProgressBytes = { loaded: blob.size, total: blob.size, percent: 100 };
+          this.watchVideoLoading = false;
+        }
+      } catch (err) {
+        if (err.name === 'AbortError') return;
+        this.watchVideoSrc = url;
+        this.watchVideoLoading = false;
+        if (!this.watchFetchInfo) {
+          this.watchFetchInfo = { status: 'Fetch error', contentType: 'unknown', contentLength: 'unknown', corsOrigin: 'blocked', acceptRanges: 'unknown', error: err.message };
+        } else {
+          this.watchFetchInfo.error = err.message;
+        }
+      }
+    },
+    async _streamWatchVideo(response, mime, total) {
+      const MS = window.MediaSource || window.WebKitMediaSource;
+      if (!MS.isTypeSupported(mime)) mime = 'video/mp4';
 
-    // Viewed
-    parts.push(section('Recently Viewed', todayViewed.length,
-      renderList(todayViewed, entry => {
-        const linked = state.uploads.find(u => u.id === entry.itemId);
-        if (!linked) return null;
-        return el('div', { className: 'item-row' },
-          el('div', null, el('span', { className: 'url-link', dataset: { action: 'url-click', id: linked.id } }, linked.url)),
-          el('div', { style: { marginTop: 4 } }, buildKebab(linked.id)),
-          buildPreview(linked.id, linked.url),
-        );
-      }, 'viewed'),
-    ));
-  }
+      const ms = new MS();
+      this._watchMS = ms;
+      this.watchVideoSrc = URL.createObjectURL(ms);
 
-  // Appeal modal
-  if (state.appealModalId) {
-    parts.push(el('div', { className: 'modal-overlay', dataset: { action: 'close-appeal' } },
-      el('div', { className: 'modal-box', style: { cursor: 'default' } },
-        el('h4', null, 'Appeal for Vote'),
-        el('p', null, 'Choose the type of appeal:'),
-        el('button', { className: 'modal-opt', dataset: { action: 'appeal-tag' } }, '\uD83C\uDFF7 Modification'),
-        el('button', { className: 'modal-opt', dataset: { action: 'appeal-del' } }, '\uD83D\uDEA8 Deletion'),
-        el('button', { className: 'modal-cancel', dataset: { action: 'close-appeal' } }, 'Cancel'),
-      ),
-    ));
-  }
+      return new Promise((resolve, reject) => {
+        let aborted = false;
+        ms.addEventListener('sourceopen', async () => {
+          try {
+            const sb = ms.addSourceBuffer(mime);
+            this._watchSB = sb;
+            const reader = response.body.getReader();
+            let loaded = 0;
 
-  root.innerHTML = '';
-  parts.forEach(p => root.appendChild(p));
-}
+            while (!aborted) {
+              const { done, value } = await reader.read();
+              if (done) {
+                if (ms.readyState === 'open' && !aborted) ms.endOfStream();
+                this.watchProgressBytes = { loaded: total || loaded, total: total || loaded, percent: 100 };
+                this.watchVideoLoading = false;
+                resolve();
+                return;
+              }
+              loaded += value.length;
+              this.watchProgressBytes = { loaded, total: total || 0, percent: total ? Math.round((loaded / total) * 100) : 0 };
 
-// ── Events ──
-document.addEventListener('click', e => {
-  const t = e.target;
-  const ds = t.dataset;
-  const action = ds && ds.action;
-  const id = ds && ds.id;
+              await new Promise(res => {
+                const append = () => {
+                  if (sb.updating) { sb.addEventListener('updateend', append, { once: true }); return; }
+                  try { sb.appendBuffer(value); } catch (e) { /* skip bad chunks */ }
+                  res();
+                };
+                append();
+              });
+            }
+          } catch (err) {
+            if (!aborted) reject(err);
+          }
+        });
+        ms.addEventListener('sourceerror', () => { if (!aborted) reject(new Error('MediaSource error')); });
+        ms.addEventListener('sourceended', () => { this.watchVideoLoading = false; if (!aborted) resolve(); });
+      });
+    },
+    destroy() {
+      this.cleanupWatchVideo();
+    },
 
-  switch (action) {
-    case 'url-click': e.preventDefault(); trackUrlClick(id); break;
-    case 'tag-click': trackTagClick(t.dataset.tag, id); break;
-    case 'tag-search': state.search = t.dataset.tag; state.resultsPage = 1; doSearch(); break;
-    case 'kebab-toggle': state.openMenuId = state.openMenuId === id ? null : id; render(); break;
-    case 'appeal': openAppealModal(id); break;
-    case 'appeal-tag': submitAppeal('tag'); break;
-    case 'appeal-del': submitAppeal('deletion'); break;
-    case 'instant-delete': handleInstantDelete(id); break;
-    case 'report-del': handleReportDeletion(id); break;
-    case 'close-appeal': state.appealModalId = null; render(); break;
-    case 'owner-delete': handleOwnerDelete(id); break;
-    case 'owner-tag': handleOwnerTag(id); break;
-    case 'vote': handleVote(id, t.dataset.dir); break;
-    case 'show-more': state.expandedSections[t.dataset.section] = true; render(); break;
-    case 'go-page': state.resultsPage = parseInt(t.dataset.page, 10); navigate('/results', state.resultsPage); break;
-  }
-
-  if (t.id === 'submit-btn') handleUpload();
-  else if (t.id === 'search-btn') doSearch();
-  else if (t.id === 'clear-search') { state.searchResults = null; state.search = ''; navigate(''); }
+    startMidnightTimer() {
+      const tick = () => {
+        this.recentlyViewed = this.recentlyViewed.filter(x => this.isToday(x.timestamp));
+        this.videoRecentlyViewed = this.videoRecentlyViewed.filter(x => this.isToday(x.timestamp));
+        this.persist('recentlyViewed');
+        this.persist('videoRecentlyViewed');
+        this.processGovernance();
+        this.videoGovernance();
+        setTimeout(tick, this.msUntilMidnight());
+      };
+      setTimeout(tick, this.msUntilMidnight());
+    },
+    }));
 });
-
-document.addEventListener('input', e => {
-  const v = e.target.value;
-  switch (e.target.id) {
-    case 'search-input': state.search = v; break;
-    case 'url-input': state.urlInput = v; break;
-    case 'tag-input': state.tagInput = v; break;
-    case 'submitter-input': state.submitterInput = v; break;
-    case 'password-input': state.passwordInput = v; break;
-  }
-});
-
-document.addEventListener('keydown', e => {
-  if (e.key === 'Enter' && e.target.id === 'search-input') doSearch();
-});
-
-document.addEventListener('mousedown', e => {
-  if (state.openMenuId && !e.target.closest('.kebab-wrap')) { state.openMenuId = null; render(); }
-});
-
-// ── Midnight expiry ──
-setTimeout(function tick() {
-  state.recentlyViewed = state.recentlyViewed.filter(x => isToday(x.timestamp));
-  persist('recentlyViewed');
-  render();
-  setTimeout(tick, msUntilMidnight());
-}, msUntilMidnight());
-
-// ── Routing & Boot ──
-window.addEventListener('hashchange', handleRoute);
-handleRoute();
